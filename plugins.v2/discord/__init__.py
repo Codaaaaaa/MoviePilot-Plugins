@@ -24,15 +24,15 @@ class Discord(_PluginBase):
     # 插件描述
     plugin_desc = "Discord 消息推送"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/HankunYu/MoviePilot-Plugins/main/icons/discord.png"
+    plugin_icon = "https://raw.githubusercontent.com/Codaaaaaa/MoviePilot-Plugins/main/icons/discord.png"
     # 主题色
     plugin_color = "#3B5E8E"
     # 插件版本
-    plugin_version = "1.5.9"
+    plugin_version = "1.6.1"
     # 插件作者
-    plugin_author = "hankun"
+    plugin_author = "Codaaaaaa"
     # 作者主页
-    author_url = "https://github.com/hankunyu"
+    author_url = "https://github.com/Codaaaaaa"
     # 插件配置项ID前缀
     plugin_config_prefix = "discord_"
     # 加载顺序

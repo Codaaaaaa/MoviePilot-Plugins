@@ -8,7 +8,6 @@ from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
 from app.core.context import MediaInfo, TorrentInfo, Context
 from app.core.metainfo import MetaInfo
-from app.plugins.discord.gpt import GPT
 import app.plugins.discord.tokenes as tokenes
 
 class MPCog(commands.Cog):
@@ -24,7 +23,6 @@ class MPCog(commands.Cog):
         self.downloadchain = DownloadChain()
         self.searchchain = SearchChain()
         self.subscribechain = SubscribeChain()
-        self.gpt = GPT(token=tokenes.gpt_token)
 
     # 监听ready事件，bot准备好后打印登录信息
     @commands.Cog.listener()
@@ -34,37 +32,6 @@ class MPCog(commands.Cog):
         await self.bot.change_presence(status=discord.Status.idle, activity=game)
         slash = await self.bot.tree.sync()
         logger.info(f"已载入 {len(slash)} 个指令")
-
-    # 监听mention事件，使用gpt生成回复
-    @commands.Cog.listener()
-    async def on_message(self,message):
-        if message.author == self.bot.user:
-            return
-
-        if self.bot.user.mentioned_in(message) or self.on_conversion:
-            msg  = re.sub(r'<.*?>', '', message.content)
-            self.on_conversion = True
-            self.current_channel = message.channel
-            reply = self.gpt.generate_reply(msg)
-            if reply != None:
-                await message.channel.send(reply)
-            else:
-                await message.channel.send("啊好像哪里出错了...这不应该，你再试试？不行就算了。")
-            game = discord.Game("模仿ChatGPT中...")
-            await self.bot.change_presence(status=discord.Status.online, activity=game)
-
-    # slash command
-    @app_commands.command(description="停止GPT对话")
-    async def stop(self, interaction: discord.Interaction):
-        game = discord.Game("看电影中...")
-        self.on_conversion = False
-        await self.bot.change_presence(status=discord.Status.idle, activity=game)
-        await interaction.response.send_message("^^")
-
-    @app_commands.command(description="清除对话记录")
-    async def clear(self, interaction: discord.Interaction):
-        self.gpt.clear_chat_history()
-        await interaction.response.send_message("对话记录已经清除")
 
     @app_commands.command(description="下载电影，如果找到多个结果，返回结果列表，让用户选择下载")
     async def download(self, interaction: discord.Interaction, title: str):
