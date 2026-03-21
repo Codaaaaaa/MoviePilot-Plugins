@@ -229,7 +229,7 @@ class DownloadView(discord.ui.View):
         self.searchchain = SearchChain()
 
     @discord.ui.button(label="下载", style = discord.ButtonStyle.blurple)
-    async def download(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def download(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 如果已经有种子信息，直接下载
         if(self.context.torrent_info != None):
             self.downloadchain.download_single(self.context)
@@ -270,7 +270,7 @@ class SubscribeView(discord.ui.View):
         self.subscribechain = SubscribeChain()
 
     @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple)
-    async def subscribe(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def subscribe(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()  # ✅ 先告知 Discord 正在处理，避免超时
         mediainfo = self.context.media_info
         meta = self.context.meta_info
