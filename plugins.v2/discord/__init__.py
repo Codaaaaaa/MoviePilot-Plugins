@@ -73,9 +73,14 @@ class Discord(_PluginBase):
             if(self._enabled and self._bot_token):
                 if not self.bot_thread:
                     self.loop = asyncio.new_event_loop()
-                    self.loop.create_task(discord_bot.run_bot())
-                    self.bot_thread = threading.Thread(target=self.run_bot_thread, args=(self.loop,))
+                    self.bot_thread = threading.Thread(target=self.run_bot_thread, args=(self.loop,), daemon=True)
                     self.bot_thread.start()
+
+                    future = asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Discord bot 启动提交失败: {e}")
                 else:
                     future = asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
                     logger.info(f"{future.result()}")
@@ -83,11 +88,16 @@ class Discord(_PluginBase):
                 # 如果插件被禁用，停止discord bot
                 logger.info(f"is bot running: {tokenes.is_bot_running}")
                 if(tokenes.is_bot_running and self._enabled == False and tokenes.is_bot_running == True):
-                    asyncio.run(discord_bot.stop())
+                    future = asyncio.run_coroutine_threadsafe(discord_bot.stop(), self.loop)
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Discord bot 停止失败: {e}")
                 
         logger.info(f"Discord插件初始化完成 version: {self.plugin_version}")
 
-    def run_bot_thread(self,loop):
+    def run_bot_thread(self, loop):
+        asyncio.set_event_loop(loop)
         loop.run_forever()
 
     def get_state(self) -> bool:
