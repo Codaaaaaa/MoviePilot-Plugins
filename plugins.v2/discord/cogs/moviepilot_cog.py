@@ -35,7 +35,7 @@ class MPCog(commands.Cog):
 
     @app_commands.command(description="下载电影，如果找到多个结果，返回结果列表，让用户选择下载")
     async def download(self, interaction: discord.Interaction, title: str):
-        await interaction.response.send_message("正在搜索电影信息 " + title)
+        await interaction.response.send_message("正在搜索 " + title)
         
         game = discord.Game("努力搜索中...")
         await self.bot.change_presence(status=discord.Status.online, activity=game)
@@ -51,6 +51,7 @@ class MPCog(commands.Cog):
         game = discord.Game("看电影中...")
         await self.bot.change_presence(status=discord.Status.idle, activity=game)
         if len(medias) > 0:
+            medias = medias[:10]
             for media in medias:
                 fields = []
                 media_title = {
@@ -107,20 +108,14 @@ class MPCog(commands.Cog):
     
     @app_commands.command(description="订阅电影")
     async def subscribe(self, interaction: discord.Interaction, title: str):
-        await interaction.response.send_message("正在搜索电影体信息 " + title)
-        game = discord.Game("努力搜索中...")
-        await self.bot.change_presence(status=discord.Status.online, activity=game)
-         # 搜索
+        await interaction.response.defer()  # ✅ 同样先 defer
+        
         meta = MetaInfo(title=title)
         medias: Optional[List[MediaInfo]] = self.searchchain.search_medias(meta=meta)
         if not medias:
             await interaction.followup.send("无法识别到媒体信息 " + title)
-            game = discord.Game("看电影中...")
-            await self.bot.change_presence(status=discord.Status.idle, activity=game)
             return
-        await interaction.followup.send("无法识别到媒体信息 " + title)
-        game = discord.Game("看电影中...")
-        # 如果找到多个结果，返回结果列表，让用户选择下载
+
         if len(medias) > 0:
             for media in medias:
                 fields = []
@@ -150,19 +145,6 @@ class MPCog(commands.Cog):
                 context = Context(media_info=media, meta_info=meta)
                 view = SubscribeView(context)
                 await interaction.followup.send(embed=embed, view=view)
-                
-                
-        # 如果只找到一个结果，直接订阅
-        else:
-            mediainfo = medias[0]
-            await interaction.followup.send(f'{mediainfo.title_year} 添加订阅')
-            self.subscribechain.add(title=mediainfo.title,
-                                                        year=mediainfo.year,
-                                                        mtype=mediainfo.type,
-                                                        tmdbid=mediainfo.tmdb_id,
-                                                        season=meta.begin_season,
-                                                        exist_ok=True,
-                                                        username="Discord Bot")
 
 
     @app_commands.command(description="搜索种子，选择下载")
@@ -182,6 +164,7 @@ class MPCog(commands.Cog):
             return
         
         contexts = self.searchchain.process(mediainfo = mediainfo, no_exists=no_exists)
+        contexts = contexts[:10]
         if len(contexts) == 0:
             await interaction.followup.send("没有找到资源 " + title)
             game = discord.Game("看电影中...")
@@ -286,17 +269,20 @@ class SubscribeView(discord.ui.View):
         self.context = context
         self.subscribechain = SubscribeChain()
 
-    @discord.ui.button(label="订阅", style = discord.ButtonStyle.blurple)
+    @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple)
     async def subscribe(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer()  # ✅ 先告知 Discord 正在处理，避免超时
         mediainfo = self.context.media_info
         meta = self.context.meta_info
-        self.subscribechain.add(title=mediainfo.title,
-                                year=mediainfo.year,
-                                mtype=mediainfo.type,
-                                tmdbid=mediainfo.tmdb_id,
-                                season=meta.begin_season,
-                                exist_ok=True,
-                                username="Discord Bot")
-        await interaction.response.send_message(f"已添加订阅 {mediainfo.title_year}")
+        self.subscribechain.add(
+            title=mediainfo.title,
+            year=mediainfo.year,
+            mtype=mediainfo.type,
+            tmdbid=mediainfo.tmdb_id,
+            season=meta.begin_season,
+            exist_ok=True,
+            username="Discord Bot"
+        )
+        await interaction.followup.send(f"已添加订阅 {mediainfo.title_year}")  # ✅ defer 后用 followup
 async def setup(bot : commands.Bot):
     await bot.add_cog(MPCog(bot))
