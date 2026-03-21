@@ -28,7 +28,7 @@ class Discord(_PluginBase):
     # 主题色
     plugin_color = "#3B5E8E"
     # 插件版本
-    plugin_version = "1.6.2"
+    plugin_version = "1.6.3"
     # 插件作者
     plugin_author = "Codaaaaaa"
     # 作者主页
@@ -63,7 +63,8 @@ class Discord(_PluginBase):
             self._webhook_url = config.get("webhook_url")
             self._debug_enabled = config.get("debug_enabled")
             self._bot_token = config.get("bot_token")
-            self._gpt_token = config.get("gpt_token")
+            # self._gpt_token = config.get("gpt_token")
+            self._gpt_token = None
             self._select_types = config.get("select_types")
             
             tokenes.bot_token = self._bot_token
@@ -76,14 +77,9 @@ class Discord(_PluginBase):
                     self.bot_thread = threading.Thread(target=self.run_bot_thread, args=(self.loop,), daemon=True)
                     self.bot_thread.start()
 
-                    future = asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Discord bot 启动提交失败: {e}")
+                    asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
                 else:
-                    future = asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
-                    logger.info(f"{future.result()}")
+                    asyncio.run_coroutine_threadsafe(discord_bot.run_bot(), self.loop)
             else:
                 # 如果插件被禁用，停止discord bot
                 logger.info(f"is bot running: {tokenes.is_bot_running}")
@@ -184,18 +180,6 @@ class Discord(_PluginBase):
                                          'props': {
                                             'model': 'bot_token',
                                             'label': 'Discord bot token（可选)'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                         'props': {
-                                            'model': 'gpt_token',
-                                            'label': 'OpenAI token（可选)'
                                         }
                                     }
                                 ]
