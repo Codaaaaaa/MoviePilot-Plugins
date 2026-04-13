@@ -51,7 +51,7 @@ class MPCog(commands.Cog):
         game = discord.Game("看电影中...")
         await self.bot.change_presence(status=discord.Status.idle, activity=game)
         if len(medias) > 0:
-            medias = medias[:10]
+            medias = medias[:3]
             for media in medias:
                 fields = []
                 media_title = {
@@ -117,6 +117,7 @@ class MPCog(commands.Cog):
             return
 
         if len(medias) > 0:
+            medias = medias[:3]
             for media in medias:
                 fields = []
                 media_title = {
