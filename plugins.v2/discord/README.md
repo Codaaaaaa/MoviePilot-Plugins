@@ -14,7 +14,6 @@
 嫌麻烦可以都勾上
 
 目前指令支持：
-- 下载 /download
 - 搜索 /search
 - 订阅 /subscribe
 
