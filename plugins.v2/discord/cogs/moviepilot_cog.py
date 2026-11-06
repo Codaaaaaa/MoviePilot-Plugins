@@ -65,7 +65,8 @@ class MPCog(commands.Cog):
     @app_commands.command(description="订阅电影或剧集")
     @app_commands.describe(title="片名，剧集可带季数，如：庆余年 第二季；输入时可从候选中直接选择")
     async def subscribe(self, interaction: discord.Interaction, title: str):
-        await interaction.response.defer()
+        # 搜索过程和选择面板只有发起人可见，频道里只留订阅成功的消息
+        await interaction.response.defer(ephemeral=True, thinking=True)
         # MoviePilot 的链路是同步阻塞的，放到线程里跑，避免卡住 bot
         picked = parse_choice(title)
         if picked:
@@ -84,7 +85,7 @@ class MPCog(commands.Cog):
         await view.load(season)
         content = f"找到 {len(view.medias)} 个结果，可在下拉框中切换" if len(view.medias) > 1 else None
         view.message = await interaction.followup.send(content=content, embed=view.render(),
-                                                       view=view, wait=True)
+                                                       view=view, ephemeral=True, wait=True)
 
     @subscribe.autocomplete("title")
     async def title_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -290,9 +291,10 @@ class SubscribeView(discord.ui.View):
         if sid:
             self.subscribed = True
             season = f" 第 {self.season} 季" if self.season else ""
-            await interaction.edit_original_response(
-                content=f"✅ {interaction.user.display_name} 已订阅 {media.title_year}{season}",
-                                                     embed=self.render(), view=self)
+            done = f"✅ {interaction.user.display_name} 已订阅 {media.title_year}{season}"
+            await interaction.edit_original_response(content=done, embed=self.render(), view=self)
+            # 面板只有自己看得到，订阅结果公开发到频道
+            await interaction.followup.send(done)
         else:
             await interaction.edit_original_response(embed=self.render(), view=self)
             await interaction.followup.send(f"❌ 订阅 {media.title_year} 失败：{err}", ephemeral=True)

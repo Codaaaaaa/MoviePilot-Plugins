@@ -90,6 +90,8 @@ async def main():
     chain.add.assert_called_once()
     assert chain.add.call_args.kwargs["username"] == "小明"
     assert "小明 已订阅" in i.edit_original_response.call_args.kwargs["content"]
+    assert "小明 已订阅" in i.followup.send.call_args.args[0]  # 公开发到频道
+    assert not i.followup.send.call_args.kwargs.get("ephemeral")
 
     # 订阅失败 / 抛异常：按钮恢复，可重试
     for ret in [(None, "未识别到媒体信息"), RuntimeError("boom")]:
@@ -126,6 +128,8 @@ async def main():
     i = interaction()
     await c.subscribe.callback(c, i, "沙丘")
     assert i.followup.send.await_count == 1
+    i.response.defer.assert_awaited_with(ephemeral=True, thinking=True)
+    assert i.followup.send.call_args.kwargs["ephemeral"]  # 面板只有发起人可见
     view = i.followup.send.call_args.kwargs["view"]
     assert len(view.picker.options) == 5
 
