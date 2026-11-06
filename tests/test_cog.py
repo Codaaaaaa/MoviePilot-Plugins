@@ -88,6 +88,8 @@ async def main():
     await btn.callback(i)
     assert btn.disabled and btn.label == "✅ 已订阅", btn.label
     chain.add.assert_called_once()
+    assert chain.add.call_args.kwargs["username"] == "小明"
+    assert "小明 已订阅" in i.edit_original_response.call_args.kwargs["content"]
 
     # 订阅失败 / 抛异常：按钮恢复，可重试
     for ret in [(None, "未识别到媒体信息"), RuntimeError("boom")]:

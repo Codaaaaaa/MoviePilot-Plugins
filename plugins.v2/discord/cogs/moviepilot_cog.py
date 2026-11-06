@@ -277,7 +277,8 @@ class SubscribeView(discord.ui.View):
                 tmdbid=media.tmdb_id,
                 season=self.season,
                 exist_ok=True,
-                username="Discord Bot"
+                # MoviePilot 订阅记录里显示真实的 Discord 用户
+                username=interaction.user.display_name
             )
         except Exception as e:
             log_error("订阅", e)
@@ -289,7 +290,8 @@ class SubscribeView(discord.ui.View):
         if sid:
             self.subscribed = True
             season = f" 第 {self.season} 季" if self.season else ""
-            await interaction.edit_original_response(content=f"✅ 已添加订阅 {media.title_year}{season}",
+            await interaction.edit_original_response(
+                content=f"✅ {interaction.user.display_name} 已订阅 {media.title_year}{season}",
                                                      embed=self.render(), view=self)
         else:
             await interaction.edit_original_response(embed=self.render(), view=self)
