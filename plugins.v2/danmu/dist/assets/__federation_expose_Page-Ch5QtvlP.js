@@ -1,0 +1,1565 @@
+import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
+
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,withCtx:_withCtx,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,Fragment:_Fragment,createElementBlock:_createElementBlock,renderList:_renderList,withModifiers:_withModifiers,withKeys:_withKeys} = await importShared('vue');
+
+
+const _hoisted_1 = { class: "plugin-page" };
+const _hoisted_2 = { class: "status-item d-flex align-center py-2" };
+const _hoisted_3 = { class: "status-content flex-grow-1" };
+const _hoisted_4 = { class: "text-caption text-grey" };
+const _hoisted_5 = { class: "status-item d-flex align-center py-2" };
+const _hoisted_6 = { class: "status-content flex-grow-1" };
+const _hoisted_7 = { class: "text-caption text-grey" };
+const _hoisted_8 = { class: "status-item d-flex align-center py-2" };
+const _hoisted_9 = { class: "status-content flex-grow-1" };
+const _hoisted_10 = { class: "text-caption text-grey" };
+const _hoisted_11 = { class: "status-item d-flex align-center py-2" };
+const _hoisted_12 = { class: "status-content flex-grow-1" };
+const _hoisted_13 = { class: "text-caption text-grey" };
+const _hoisted_14 = {
+  key: 0,
+  class: "directory-content"
+};
+const _hoisted_15 = { class: "text-subtitle-2 text-primary cursor-pointer" };
+const _hoisted_16 = ["onClick"];
+const _hoisted_17 = { class: "flex-grow-1 d-flex align-center" };
+const _hoisted_18 = { class: "text-subtitle-2 cursor-pointer" };
+const _hoisted_19 = {
+  key: 1,
+  class: "media-item d-flex align-center py-2"
+};
+const _hoisted_20 = { class: "flex-grow-1" };
+const _hoisted_21 = { class: "d-flex align-center" };
+const _hoisted_22 = { class: "text-subtitle-2" };
+const _hoisted_23 = {
+  key: 2,
+  class: "text-center py-4"
+};
+const _hoisted_24 = {
+  key: 1,
+  class: "text-center py-4"
+};
+const _hoisted_25 = {
+  key: 2,
+  class: "text-center py-4"
+};
+const _hoisted_26 = {
+  key: 3,
+  class: "text-center py-4"
+};
+const _hoisted_27 = {
+  key: 4,
+  class: "text-center py-4"
+};
+const _hoisted_28 = { class: "text-caption text-grey mb-2" };
+const _hoisted_29 = { key: 0 };
+const _hoisted_30 = { key: 0 };
+const _hoisted_31 = { key: 1 };
+const _hoisted_32 = { key: 2 };
+
+const {ref,reactive,onMounted,onUnmounted,computed} = await importShared('vue');
+
+
+const MAX_STATUS_FAILURES = 5;
+
+const _sfc_main = {
+  __name: 'Page',
+  props: {
+  api: { 
+    type: [Object, Function],
+    required: true,
+  }
+},
+  emits: ['close', 'switch'],
+  setup(__props, { emit: __emit }) {
+
+const props = __props;
+
+const emit = __emit;
+
+// 状态变量
+const error = ref(null);
+const successMessage = ref(null);
+const infoMessage = ref(null);
+const running = ref(false);
+const batchStarting = ref(false);
+let statusTimer = null;
+
+// 状态数据
+const status = reactive({
+  enabled: false
+});
+
+// 刮削状态
+const scrapingStatus = reactive({
+  running: false,
+  total: 0,
+  processed: 0,
+  success: 0,
+  failed: 0,
+  absent: 0,
+  empty: 0,
+  deferred: 0,
+  skipped: 0,
+  current_file: "",
+  duration: 0
+});
+
+// 当前目录内容和导航
+const directoryContent = ref(null);
+const currentPath = ref('');
+const loading = ref(false);
+const notConfigured = ref(false);
+const pathHistory = ref([]);
+
+// 搜索关键字
+const searchKeyword = ref('');
+
+// 手动匹配相关状态
+const manualDialog = ref(false);
+const manualContext = ref(null);
+const manualSearchKeyword = ref('');
+const manualSearchType = ref('tvseries');
+const manualTypeOptions = [
+  { title: '全部类型', value: 'all' },
+  { title: '电视动画', value: 'tvseries' },
+  { title: 'OVA/特别篇', value: 'ova' },
+  { title: '剧场版', value: 'movie' }
+];
+const manualSearchResults = ref([]);
+const manualSearchLoading = ref(false);
+const manualSearchError = ref(null);
+const manualSearchPerformed = ref(false);
+const manualSelected = ref(null);
+const manualSaving = ref(false);
+const manualScope = ref('directory');
+const manualEpisodeOffset = ref(0);
+
+const manualTargetItem = computed(() => manualContext.value?.item || null);
+const manualExistingMatch = computed(() => manualTargetItem.value?.manual_match || null);
+const manualExistingScope = computed(() => manualExistingMatch.value?.scope || null);
+const manualExistingOffset = computed(() => Number(manualExistingMatch.value?.episodeOffset) || 0);
+
+// 计算属性：过滤后的项目
+const filteredItems = computed(() => {
+  if (!directoryContent.value || !directoryContent.value.children) {
+    return [];
+  }
+  
+  if (!searchKeyword.value) {
+    return directoryContent.value.children;
+  }
+  
+  const keyword = searchKeyword.value.toLowerCase();
+  return directoryContent.value.children.filter(item => {
+    return item.name.toLowerCase().includes(keyword);
+  });
+});
+
+// 格式化时间
+function formatDuration(seconds) {
+  if (!seconds) return '0秒';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}小时`);
+  if (minutes > 0) parts.push(`${minutes}分钟`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}秒`);
+  return parts.join('');
+}
+
+// 获取状态
+// 轮询期间允许偶发失败，连续多次才提示并停止轮询，避免每 3 秒弹一次错误
+let statusFailures = 0;
+
+async function getStatus(isPolling = false) {
+  try {
+    const data = await props.api.get('plugin/Danmu/status');
+    if (data) {
+      Object.assign(status, {
+        enabled: data.enabled
+      });
+
+      Object.assign(scrapingStatus, {
+        running: data.running,
+        total: data.total,
+        processed: data.processed,
+        success: data.success,
+        failed: data.failed,
+        absent: data.absent || 0,
+        empty: data.empty || 0,
+        deferred: data.deferred || 0,
+        skipped: data.skipped || 0,
+        current_file: data.current_file,
+        duration: data.duration
+      });
+
+      running.value = data.running;
+    }
+    statusFailures = 0;
+    return true;
+  } catch (err) {
+    console.error('获取状态失败:', err);
+    statusFailures += 1;
+    if (!isPolling || statusFailures >= MAX_STATUS_FAILURES) {
+      error.value = '获取状态失败，请检查网络或API';
+    }
+    return false;
+  }
+}
+
+// 导航到指定路径
+async function navigateToPath(path) {
+  try {
+    loading.value = true;
+    error.value = null;
+    notConfigured.value = false;
+
+    // 如果是空路径，加载根目录
+    if (!path) {
+      const data = await props.api.get('plugin/Danmu/scan_path');
+      if (data && data.success) {
+        directoryContent.value = data.data;
+        currentPath.value = '';
+        // 如果是多根目录，保存根路径历史
+        if (data.data.type === 'root') {
+          pathHistory.value = [];
+        }
+      } else {
+        const msg = data?.message || '';
+        if (msg.includes('未配置')) {
+          notConfigured.value = true;
+        } else {
+          error.value = msg || '加载根目录失败';
+        }
+      }
+    } else {
+      // 加载指定路径
+      const data = await props.api.get('plugin/Danmu/scan_subfolder', {
+        params: { subfolder_path: path }
+      });
+      
+      if (data && data.success) {
+        directoryContent.value = data.data;
+        currentPath.value = path;
+        
+        // 更新路径历史
+        if (!pathHistory.value.includes(path)) {
+          pathHistory.value.push(path);
+        }
+      } else {
+        error.value = data?.message || '加载目录失败';
+      }
+    }
+  } catch (err) {
+    console.error('导航失败:', err);
+    error.value = '加载目录失败，请检查网络或API';
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 返回上级目录
+function goBack() {
+  if (!currentPath.value) return;
+  
+  // 如果当前目录是用户设定的根目录，返回到初始目录列表
+  if (directoryContent.value?.is_root) {
+    navigateToPath('');
+  } else {
+    // 如果不是根目录，正常返回上级目录
+    const parentPath = currentPath.value.split('/').slice(0, -1).join('/');
+    navigateToPath(parentPath || '');
+  }
+}
+
+function closeManualDialog() {
+  manualDialog.value = false;
+  manualContext.value = null;
+  manualSelected.value = null;
+  manualScope.value = 'directory';
+  manualEpisodeOffset.value = 0;
+}
+
+function formatOffset(offset) {
+  return offset > 0 ? `+${offset}` : `${offset}`;
+}
+
+function scopeLabel(scope) {
+  if (!scope) {
+    return '目录';
+  }
+  if (scope === 'file') {
+    return '单文件';
+  }
+  if (scope === 'directory') {
+    return '目录';
+  }
+  return '未知';
+}
+
+function manualChipText(item) {
+  if (!item?.manual_match) return '';
+  const scopeText = item.manual_scope === 'file' ? '【单文件】' : '';
+  const title = item.manual_match.animeTitle || `ID ${item.manual_match.animeId}`;
+  const offset = Number(item.manual_match.episodeOffset) || 0;
+  const offsetText = offset ? `（偏移${formatOffset(offset)}）` : '';
+  return `${scopeText}${title}${offsetText}`;
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+// Danmu chip tooltip: when the server data was fetched, and whether the server now has a different count
+function countTooltip(item) {
+  const state = item?.scrape_state;
+  if (!state) return '';
+  const parts = [];
+  if (state.data_as_of) {
+    parts.push(`弹幕数据时间：${formatTime(state.data_as_of)}`);
+  }
+  if (state.server_count != null && state.server_count !== item.danmu_count) {
+    parts.push(`服务端最近一次：${state.server_count} 条`);
+  }
+  return parts.join('，');
+}
+
+const RETRY_LABELS = {
+  failed: { text: '待重试', color: 'error', desc: '上次刮削失败，会自动重试' },
+  empty: { text: '暂无弹幕', color: 'grey', desc: '弹弹play 已收录，但还没有弹幕' },
+  absent: { text: '未收录', color: 'grey', desc: '弹弹play 未收录该内容，会定期复查' },
+  ok: { text: '弹幕偏少', color: 'warning', desc: '弹幕较少，会定期复查是否增加' },
+};
+
+// Scrape lifecycle chip; settled files show nothing to keep the list quiet
+function stateChip(item) {
+  const state = item?.scrape_state;
+  if (!state || !state.phase || state.phase === 'settled') return null;
+  let chip;
+  if (state.phase === 'refreshing') {
+    chip = {
+      text: `刷新中 ${state.refresh_done ?? 0}/${state.refresh_total}`,
+      color: 'primary',
+      lines: ['新番弹幕还在增加，按计划定期刷新（明显变多才覆盖）'],
+    };
+  } else if (state.phase === 'pending') {
+    chip = { text: '待刮削', color: 'warning', lines: ['已登记，等待刮削完成'] };
+  } else {
+    const label = RETRY_LABELS[state.verdict] || RETRY_LABELS.failed;
+    chip = { text: label.text, color: label.color, lines: [label.desc] };
+  }
+  if (state.next_check) {
+    chip.lines.push(`下次检查：${formatTime(state.next_check)}`);
+  }
+  if (state.data_as_of) {
+    chip.lines.push(`弹幕数据时间：${formatTime(state.data_as_of)}`);
+  }
+  return chip;
+}
+
+function resolveDirectoryPath(item) {
+  if (!item) return null;
+  if (item.type === 'directory') {
+    return item.path;
+  }
+  return item.directory_path || (item.path ? item.path.split('/').slice(0, -1).join('/') : null);
+}
+
+function sanitizeKeyword(name) {
+  if (!name) return '';
+  return name.replace(/\.[^/.]+$/, '').replace(/[\._]/g, ' ').trim();
+}
+
+function openManualMatch(item) {
+  manualContext.value = { item };
+  manualDialog.value = true;
+  manualSearchError.value = null;
+  manualSearchResults.value = [];
+  manualSearchPerformed.value = false;
+  manualSearchLoading.value = false;
+  manualSaving.value = false;
+  manualSelected.value = item.manual_match ? { ...item.manual_match } : null;
+  manualEpisodeOffset.value = Number(item.manual_match?.episodeOffset) || 0;
+  const existingScope = item.manual_scope || item.manual_match?.scope;
+  if (item.type === 'directory') {
+    manualScope.value = 'directory';
+  } else if (existingScope === 'directory') {
+    manualScope.value = 'directory';
+  } else if (existingScope === 'file') {
+    manualScope.value = 'file';
+  } else {
+    manualScope.value = 'file';
+  }
+  manualSearchKeyword.value = sanitizeKeyword(item.name) || manualSearchKeyword.value || '';
+  manualSearchType.value = 'tvseries';
+}
+
+function selectManualResult(anime) {
+  manualSelected.value = anime;
+}
+
+async function performManualSearch() {
+  const keyword = manualSearchKeyword.value?.trim();
+  if (!keyword) {
+    manualSearchError.value = '请输入搜索关键字';
+    manualSearchResults.value = [];
+    manualSearchPerformed.value = true;
+    return;
+  }
+  manualSearchLoading.value = true;
+  manualSearchError.value = null;
+  manualSearchPerformed.value = true;
+  try {
+    const params = {
+      keyword,
+    };
+    if (manualSearchType.value && manualSearchType.value !== 'all') {
+      params.type = manualSearchType.value;
+    }
+    const res = await props.api.get('plugin/Danmu/search_anime', { params });
+    if (res && res.success) {
+      manualSearchResults.value = (res.data?.animes || []).slice(0, 50);
+    } else {
+      manualSearchResults.value = [];
+      manualSearchError.value = res?.message || '搜索失败，请稍后重试';
+    }
+  } catch (err) {
+    console.error('搜索弹弹失败:', err);
+    manualSearchResults.value = [];
+    manualSearchError.value = '搜索失败，请检查网络或API';
+  } finally {
+    manualSearchLoading.value = false;
+  }
+}
+
+async function confirmManualMatch() {
+  const targetItem = manualTargetItem.value;
+  if (!targetItem || !manualSelected.value) {
+    manualSearchError.value = '请选择一条匹配记录';
+    return;
+  }
+  manualSaving.value = true;
+  manualSearchError.value = null;
+  try {
+    const scope = manualScope.value;
+    const directoryPath = scope === 'directory'
+      ? resolveDirectoryPath(targetItem)
+      : undefined;
+    const offset = parseInt(manualEpisodeOffset.value, 10) || 0;
+    const payload = {
+      file_path: scope === 'file' ? targetItem.path : undefined,
+      directory: directoryPath,
+      scope,
+      episodeOffset: offset,
+      anime: manualSelected.value
+    };
+    const res = await props.api.post('plugin/Danmu/manual_match', payload);
+    if (res && res.success) {
+      successMessage.value = '手动匹配已保存';
+      if (manualContext.value?.item) {
+        manualContext.value.item.manual_match = res.data?.manual_match || manualSelected.value;
+        manualContext.value.item.manual_scope = scope;
+      }
+      manualDialog.value = false;
+      await navigateToPath(currentPath.value);
+    } else {
+      manualSearchError.value = res?.message || '保存匹配失败';
+    }
+  } catch (err) {
+    console.error('保存手动匹配失败:', err);
+    manualSearchError.value = '保存失败，请检查网络或API';
+  } finally {
+    manualSaving.value = false;
+  }
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) {
+    return (dateStr || '').split('T')[0] || dateStr;
+  }
+  return date.toISOString().split('T')[0];
+}
+
+// 批量刮削目录
+async function scrapeDirectory(path) {
+  if (!path) return;
+  error.value = null;
+  infoMessage.value = null;
+  batchStarting.value = true;
+  try {
+    const res = await props.api.get('plugin/Danmu/scrape_directory', {
+      params: { directory_path: path }
+    });
+    if (res && res.success) {
+      successMessage.value = res.message || '已开始批量刮削';
+      await getStatus();
+      startStatusPolling();
+    } else {
+      error.value = res?.message || '启动批量刮削失败';
+    }
+  } catch (err) {
+    console.error('启动批量刮削失败:', err);
+    error.value = '启动批量刮削失败，请检查网络或API';
+  } finally {
+    batchStarting.value = false;
+  }
+}
+
+function scrapeCurrentDirectory() {
+  scrapeDirectory(currentPath.value);
+}
+
+// 无收录占比过高时给一句解释：这类内容弹弹play 本来就没有，
+// 再扫一次或做手动匹配都不会有结果
+function buildCoverageHint() {
+  const { absent, total } = scrapingStatus;
+  if (!absent || !total) return null;
+  const ratio = absent / total;
+  if (ratio < 0.5) return null;
+  return `本次 ${absent}/${total} 个文件在弹弹play 无收录（${Math.round(ratio * 100)}%）。`
+    + '弹弹play 以番剧弹幕为主，国产剧、综艺、欧美剧等通常没有收录——'
+    + '这类文件重复刮削或手动匹配都不会有结果。';
+}
+
+function startStatusPolling() {
+  if (statusTimer) return;
+  statusFailures = 0;
+  statusTimer = setInterval(async () => {
+    const ok = await getStatus(true);
+    if (!ok) {
+      // 连续失败说明后端不可达，继续轮询只会不断刷错
+      if (statusFailures >= MAX_STATUS_FAILURES) {
+        stopStatusPolling();
+      }
+      return;
+    }
+    if (!scrapingStatus.running) {
+      stopStatusPolling();
+      successMessage.value = `批量刮削完成：成功 ${scrapingStatus.success}`
+        + (scrapingStatus.absent ? `，无收录 ${scrapingStatus.absent}` : '')
+        + (scrapingStatus.empty ? `，暂无弹幕 ${scrapingStatus.empty}` : '')
+        + `，失败 ${scrapingStatus.failed}`
+        + (scrapingStatus.deferred ? `，限流跳过 ${scrapingStatus.deferred}` : '')
+        + (scrapingStatus.skipped ? `，无法判定 ${scrapingStatus.skipped}` : '')
+        + `，共 ${scrapingStatus.total}`;
+      infoMessage.value = buildCoverageHint();
+      await navigateToPath(currentPath.value);
+    }
+  }, 3000);
+}
+
+function stopStatusPolling() {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
+}
+
+// 生成弹幕
+async function generateDanmu(item) {
+  error.value = null; // 清空旧错误
+  infoMessage.value = null;
+  try {
+    item.generating = true;
+    const result = await props.api.get('plugin/Danmu/generate_danmu', {
+      params: { file_path: item.path }
+    });
+    const outcome = result?.data?.outcome;
+    if (outcome === 'absent' || outcome === 'empty') {
+      // 不是失败：报成错误会诱导用户去重扫、去做手动匹配，而这些都不可能奏效
+      infoMessage.value = outcome === 'absent'
+        ? '弹弹play 未收录该内容，因此没有弹幕可用（不是匹配失败）'
+        : '该内容已收录，但目前还没有弹幕，之后可能会有';
+    } else if (result && result.success) {
+      successMessage.value = '弹幕生成成功';
+      await navigateToPath(currentPath.value);
+    } else {
+      console.log('后端返回：', result);
+      error.value = result?.message || '弹幕生成失败';
+    }
+  } catch (err) {
+    error.value = '生成弹幕失败，请检查网络或API';
+  } finally {
+    item.generating = false;
+  }
+}
+
+async function clearManualMatch(item, scopeOverride = null, keepDialog = false) {
+  if (!item) {
+    return;
+  }
+  manualSearchError.value = null;
+  try {
+    const scope = (scopeOverride || item?.manual_scope || (item?.type === 'directory' ? 'directory' : 'file'));
+    const params = { scope };
+    if (scope === 'file') {
+      params.file_path = item.path;
+    } else {
+      params.directory = resolveDirectoryPath(item);
+      if (!params.directory) {
+        manualSearchError.value = '未能确定需要移除的目录';
+        return;
+      }
+    }
+    const res = await props.api.get('plugin/Danmu/remove_manual_match', { params });
+    if (res && res.success) {
+      successMessage.value = '已移除手动匹配';
+      if (manualContext.value?.item?.path === item.path) {
+        manualContext.value.item.manual_match = null;
+        manualContext.value.item.manual_scope = null;
+        manualSelected.value = null;
+        if (keepDialog && manualTargetItem.value?.type === 'media') {
+          manualScope.value = 'file';
+        }
+        if (!keepDialog) {
+          manualDialog.value = false;
+        }
+      }
+      await navigateToPath(currentPath.value);
+    } else {
+      manualSearchError.value = res?.message || '移除手动匹配失败';
+    }
+  } catch (err) {
+    console.error('移除手动匹配失败:', err);
+    manualSearchError.value = '移除手动匹配失败，请检查网络或API';
+  }
+}
+
+// 初始化
+onMounted(async () => {
+  // 状态与根目录并行加载
+  await Promise.all([getStatus(), navigateToPath('')]);
+  // 页面打开时如有刮削任务在跑（如定时全局刮削），继续跟踪进度
+  if (scrapingStatus.running) {
+    startStatusPolling();
+  }
+});
+
+// 清理
+onUnmounted(() => {
+  stopStatusPolling();
+});
+
+return (_ctx, _cache) => {
+  const _component_v_icon = _resolveComponent("v-icon");
+  const _component_v_card_title = _resolveComponent("v-card-title");
+  const _component_v_alert = _resolveComponent("v-alert");
+  const _component_v_col = _resolveComponent("v-col");
+  const _component_v_row = _resolveComponent("v-row");
+  const _component_v_card_text = _resolveComponent("v-card-text");
+  const _component_v_card = _resolveComponent("v-card");
+  const _component_v_spacer = _resolveComponent("v-spacer");
+  const _component_v_text_field = _resolveComponent("v-text-field");
+  const _component_v_btn = _resolveComponent("v-btn");
+  const _component_v_progress_linear = _resolveComponent("v-progress-linear");
+  const _component_v_chip = _resolveComponent("v-chip");
+  const _component_v_tooltip = _resolveComponent("v-tooltip");
+  const _component_v_divider = _resolveComponent("v-divider");
+  const _component_v_card_actions = _resolveComponent("v-card-actions");
+  const _component_v_select = _resolveComponent("v-select");
+  const _component_v_radio = _resolveComponent("v-radio");
+  const _component_v_radio_group = _resolveComponent("v-radio-group");
+  const _component_v_list_item_title = _resolveComponent("v-list-item-title");
+  const _component_v_list_item_subtitle = _resolveComponent("v-list-item-subtitle");
+  const _component_v_list_item = _resolveComponent("v-list-item");
+  const _component_v_list = _resolveComponent("v-list");
+  const _component_v_dialog = _resolveComponent("v-dialog");
+
+  return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+    _createVNode(_component_v_card, {
+      flat: "",
+      class: "rounded border"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_v_card_title, { class: "text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_v_icon, {
+              icon: "mdi-video",
+              class: "mr-2",
+              color: "primary",
+              size: "small"
+            }),
+            _cache[12] || (_cache[12] = _createElementVNode("span", null, "弹幕刮削", -1))
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_v_card_text, { class: "px-3 py-2" }, {
+          default: _withCtx(() => [
+            (error.value)
+              ? (_openBlock(), _createBlock(_component_v_alert, {
+                  key: 0,
+                  type: "error",
+                  density: "compact",
+                  class: "mb-2 text-caption",
+                  variant: "tonal",
+                  closable: ""
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(error.value), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (successMessage.value)
+              ? (_openBlock(), _createBlock(_component_v_alert, {
+                  key: 1,
+                  type: "success",
+                  density: "compact",
+                  class: "mb-2 text-caption",
+                  variant: "tonal",
+                  closable: ""
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(successMessage.value), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            (infoMessage.value)
+              ? (_openBlock(), _createBlock(_component_v_alert, {
+                  key: 2,
+                  type: "info",
+                  density: "compact",
+                  class: "mb-2 text-caption",
+                  variant: "tonal",
+                  closable: ""
+                }, {
+                  default: _withCtx(() => [
+                    _createTextVNode(_toDisplayString(infoMessage.value), 1)
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            _createVNode(_component_v_card, {
+              flat: "",
+              class: "rounded mb-3 border status-card"
+            }, {
+              default: _withCtx(() => [
+                _createVNode(_component_v_card_title, { class: "text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5" }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_icon, {
+                      icon: "mdi-information",
+                      class: "mr-2",
+                      color: "primary",
+                      size: "small"
+                    }),
+                    _cache[13] || (_cache[13] = _createElementVNode("span", null, "插件状态", -1))
+                  ]),
+                  _: 1
+                }),
+                _createVNode(_component_v_card_text, { class: "px-3 py-2" }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_row, null, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_col, {
+                          cols: "12",
+                          md: "6"
+                        }, {
+                          default: _withCtx(() => [
+                            _createElementVNode("div", _hoisted_2, [
+                              _createVNode(_component_v_icon, {
+                                icon: "mdi-power",
+                                size: "small",
+                                color: status.enabled ? 'success' : 'grey',
+                                class: "mr-3"
+                              }, null, 8, ["color"]),
+                              _createElementVNode("div", _hoisted_3, [
+                                _cache[14] || (_cache[14] = _createElementVNode("div", { class: "text-subtitle-2" }, "插件状态", -1)),
+                                _createElementVNode("div", _hoisted_4, _toDisplayString(status.enabled ? '已启用' : '已禁用'), 1)
+                              ])
+                            ])
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            }),
+            (scrapingStatus.running)
+              ? (_openBlock(), _createBlock(_component_v_card, {
+                  key: 3,
+                  flat: "",
+                  class: "rounded mb-3 border status-card"
+                }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_card_title, { class: "text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5" }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_icon, {
+                          icon: "mdi-progress-clock",
+                          class: "mr-2",
+                          color: "primary",
+                          size: "small"
+                        }),
+                        _cache[15] || (_cache[15] = _createElementVNode("span", null, "刮削进度", -1))
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_v_card_text, { class: "px-3 py-2" }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_row, null, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_v_col, { cols: "12" }, {
+                              default: _withCtx(() => [
+                                _createElementVNode("div", _hoisted_5, [
+                                  _createVNode(_component_v_icon, {
+                                    icon: "mdi-file-document",
+                                    size: "small",
+                                    color: "primary",
+                                    class: "mr-3"
+                                  }),
+                                  _createElementVNode("div", _hoisted_6, [
+                                    _cache[16] || (_cache[16] = _createElementVNode("div", { class: "text-subtitle-2" }, "当前文件", -1)),
+                                    _createElementVNode("div", _hoisted_7, _toDisplayString(scrapingStatus.current_file || '等待中...'), 1)
+                                  ])
+                                ])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_v_col, {
+                              cols: "12",
+                              md: "6"
+                            }, {
+                              default: _withCtx(() => [
+                                _createElementVNode("div", _hoisted_8, [
+                                  _createVNode(_component_v_icon, {
+                                    icon: "mdi-counter",
+                                    size: "small",
+                                    color: "primary",
+                                    class: "mr-3"
+                                  }),
+                                  _createElementVNode("div", _hoisted_9, [
+                                    _cache[18] || (_cache[18] = _createElementVNode("div", { class: "text-subtitle-2" }, "处理进度", -1)),
+                                    _createElementVNode("div", _hoisted_10, [
+                                      _createTextVNode(_toDisplayString(scrapingStatus.processed) + "/" + _toDisplayString(scrapingStatus.total) + " 个文件 (" + _toDisplayString(scrapingStatus.success) + " 成功, " + _toDisplayString(scrapingStatus.failed) + " 失败", 1),
+                                      (scrapingStatus.deferred)
+                                        ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
+                                            _createTextVNode(", " + _toDisplayString(scrapingStatus.deferred) + " 限流跳过", 1)
+                                          ], 64))
+                                        : _createCommentVNode("", true),
+                                      (scrapingStatus.skipped)
+                                        ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
+                                            _createTextVNode(", " + _toDisplayString(scrapingStatus.skipped) + " 无法判定", 1)
+                                          ], 64))
+                                        : _createCommentVNode("", true),
+                                      _cache[17] || (_cache[17] = _createTextVNode(") "))
+                                    ])
+                                  ])
+                                ])
+                              ]),
+                              _: 1
+                            }),
+                            _createVNode(_component_v_col, {
+                              cols: "12",
+                              md: "6"
+                            }, {
+                              default: _withCtx(() => [
+                                _createElementVNode("div", _hoisted_11, [
+                                  _createVNode(_component_v_icon, {
+                                    icon: "mdi-clock-outline",
+                                    size: "small",
+                                    color: "primary",
+                                    class: "mr-3"
+                                  }),
+                                  _createElementVNode("div", _hoisted_12, [
+                                    _cache[19] || (_cache[19] = _createElementVNode("div", { class: "text-subtitle-2" }, "运行时间", -1)),
+                                    _createElementVNode("div", _hoisted_13, _toDisplayString(formatDuration(scrapingStatus.duration)), 1)
+                                  ])
+                                ])
+                              ]),
+                              _: 1
+                            })
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                }))
+              : _createCommentVNode("", true),
+            _createVNode(_component_v_card, {
+              flat: "",
+              class: "rounded mb-3 border status-card"
+            }, {
+              default: _withCtx(() => [
+                _createVNode(_component_v_card_title, { class: "text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5" }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_icon, {
+                      icon: "mdi-folder",
+                      class: "mr-2",
+                      color: "primary",
+                      size: "small"
+                    }),
+                    _cache[21] || (_cache[21] = _createElementVNode("span", null, "目录浏览", -1)),
+                    _createVNode(_component_v_spacer),
+                    _createVNode(_component_v_text_field, {
+                      modelValue: searchKeyword.value,
+                      "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((searchKeyword).value = $event)),
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": "",
+                      placeholder: "搜索文件/目录",
+                      "prepend-inner-icon": "mdi-magnify",
+                      class: "search-field",
+                      style: {"max-width":"200px"}
+                    }, null, 8, ["modelValue"]),
+                    (currentPath.value && directoryContent.value && directoryContent.value.type === 'directory')
+                      ? (_openBlock(), _createBlock(_component_v_btn, {
+                          key: 0,
+                          color: "primary",
+                          size: "small",
+                          variant: "tonal",
+                          class: "ml-2",
+                          "prepend-icon": "mdi-download-multiple",
+                          loading: batchStarting.value,
+                          disabled: scrapingStatus.running,
+                          onClick: scrapeCurrentDirectory
+                        }, {
+                          default: _withCtx(() => _cache[20] || (_cache[20] = [
+                            _createTextVNode(" 刮削本目录 ")
+                          ])),
+                          _: 1
+                        }, 8, ["loading", "disabled"]))
+                      : _createCommentVNode("", true)
+                  ]),
+                  _: 1
+                }),
+                _createVNode(_component_v_card_text, { class: "px-3 py-2" }, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_row, null, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_col, { cols: "12" }, {
+                          default: _withCtx(() => [
+                            (directoryContent.value)
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
+                                  (loading.value)
+                                    ? (_openBlock(), _createBlock(_component_v_progress_linear, {
+                                        key: 0,
+                                        indeterminate: "",
+                                        color: "primary",
+                                        class: "mb-2"
+                                      }))
+                                    : _createCommentVNode("", true),
+                                  (currentPath.value)
+                                    ? (_openBlock(), _createElementBlock("div", {
+                                        key: 1,
+                                        class: "back-item d-flex align-center py-2 mb-2",
+                                        onClick: _cache[1] || (_cache[1] = $event => (goBack()))
+                                      }, [
+                                        _createVNode(_component_v_icon, {
+                                          icon: "mdi-keyboard-backspace",
+                                          size: "small",
+                                          color: "primary",
+                                          class: "mr-2"
+                                        }),
+                                        _createElementVNode("span", _hoisted_15, _toDisplayString(directoryContent.value.is_root ? '返回目录列表' : '返回上级目录'), 1)
+                                      ]))
+                                    : _createCommentVNode("", true),
+                                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(filteredItems.value, (item, index) => {
+                                    return (_openBlock(), _createElementBlock(_Fragment, { key: index }, [
+                                      (item.type === 'directory')
+                                        ? (_openBlock(), _createElementBlock("div", {
+                                            key: 0,
+                                            class: "directory-item d-flex align-center py-2",
+                                            onClick: $event => (navigateToPath(item.path))
+                                          }, [
+                                            _createVNode(_component_v_icon, {
+                                              icon: "mdi-folder",
+                                              size: "small",
+                                              color: "primary",
+                                              class: "mr-2"
+                                            }),
+                                            _createElementVNode("div", _hoisted_17, [
+                                              _createElementVNode("span", _hoisted_18, _toDisplayString(item.name), 1),
+                                              (item.manual_match)
+                                                ? (_openBlock(), _createBlock(_component_v_chip, {
+                                                    key: 0,
+                                                    size: "small",
+                                                    color: "secondary",
+                                                    class: "ml-2",
+                                                    closable: "",
+                                                    onClick: _cache[2] || (_cache[2] = _withModifiers(() => {}, ["stop"])),
+                                                    "onClick:close": _withModifiers($event => (clearManualMatch(item, item.manual_scope)), ["stop"])
+                                                  }, {
+                                                    default: _withCtx(() => [
+                                                      _createTextVNode(_toDisplayString(manualChipText(item)), 1)
+                                                    ]),
+                                                    _: 2
+                                                  }, 1032, ["onClick:close"]))
+                                                : _createCommentVNode("", true)
+                                            ]),
+                                            _createVNode(_component_v_btn, {
+                                              icon: "mdi-download-multiple",
+                                              size: "small",
+                                              variant: "text",
+                                              color: "primary",
+                                              class: "mr-1",
+                                              disabled: scrapingStatus.running,
+                                              onClick: _withModifiers($event => (scrapeDirectory(item.path)), ["stop"])
+                                            }, null, 8, ["disabled", "onClick"]),
+                                            _createVNode(_component_v_btn, {
+                                              icon: "mdi-magnify",
+                                              size: "small",
+                                              variant: "text",
+                                              color: "secondary",
+                                              class: "mr-1",
+                                              onClick: _withModifiers($event => (openManualMatch(item)), ["stop"])
+                                            }, null, 8, ["onClick"]),
+                                            _createVNode(_component_v_icon, {
+                                              icon: "mdi-chevron-right",
+                                              size: "small",
+                                              color: "grey"
+                                            })
+                                          ], 8, _hoisted_16))
+                                        : (item.type === 'media')
+                                          ? (_openBlock(), _createElementBlock("div", _hoisted_19, [
+                                              _createVNode(_component_v_icon, {
+                                                icon: "mdi-video",
+                                                size: "small",
+                                                color: "info",
+                                                class: "mr-2"
+                                              }),
+                                              _createElementVNode("div", _hoisted_20, [
+                                                _createElementVNode("div", _hoisted_21, [
+                                                  _createElementVNode("span", _hoisted_22, _toDisplayString(item.name), 1),
+                                                  (item.danmu_count > 0)
+                                                    ? (_openBlock(), _createBlock(_component_v_chip, {
+                                                        key: 0,
+                                                        size: "small",
+                                                        color: "info",
+                                                        class: "ml-2"
+                                                      }, {
+                                                        default: _withCtx(() => [
+                                                          _createTextVNode(" 弹幕: " + _toDisplayString(item.danmu_count) + " ", 1),
+                                                          (countTooltip(item))
+                                                            ? (_openBlock(), _createBlock(_component_v_tooltip, {
+                                                                key: 0,
+                                                                activator: "parent",
+                                                                location: "top"
+                                                              }, {
+                                                                default: _withCtx(() => [
+                                                                  _createTextVNode(_toDisplayString(countTooltip(item)), 1)
+                                                                ]),
+                                                                _: 2
+                                                              }, 1024))
+                                                            : _createCommentVNode("", true)
+                                                        ]),
+                                                        _: 2
+                                                      }, 1024))
+                                                    : (_openBlock(), _createBlock(_component_v_chip, {
+                                                        key: 1,
+                                                        size: "small",
+                                                        color: "grey",
+                                                        class: "ml-2"
+                                                      }, {
+                                                        default: _withCtx(() => _cache[22] || (_cache[22] = [
+                                                          _createTextVNode(" 无弹幕 ")
+                                                        ])),
+                                                        _: 1
+                                                      })),
+                                                  (stateChip(item))
+                                                    ? (_openBlock(), _createBlock(_component_v_chip, {
+                                                        key: 2,
+                                                        size: "small",
+                                                        variant: "tonal",
+                                                        color: stateChip(item).color,
+                                                        class: "ml-2"
+                                                      }, {
+                                                        default: _withCtx(() => [
+                                                          _createTextVNode(_toDisplayString(stateChip(item).text) + " ", 1),
+                                                          _createVNode(_component_v_tooltip, {
+                                                            activator: "parent",
+                                                            location: "top"
+                                                          }, {
+                                                            default: _withCtx(() => [
+                                                              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(stateChip(item).lines, (line) => {
+                                                                return (_openBlock(), _createElementBlock("div", { key: line }, _toDisplayString(line), 1))
+                                                              }), 128))
+                                                            ]),
+                                                            _: 2
+                                                          }, 1024)
+                                                        ]),
+                                                        _: 2
+                                                      }, 1032, ["color"]))
+                                                    : _createCommentVNode("", true),
+                                                  (item.manual_match)
+                                                    ? (_openBlock(), _createBlock(_component_v_chip, {
+                                                        key: 3,
+                                                        size: "small",
+                                                        color: "secondary",
+                                                        class: "ml-2",
+                                                        closable: "",
+                                                        "onClick:close": _withModifiers($event => (clearManualMatch(item, item.manual_scope)), ["stop"])
+                                                      }, {
+                                                        default: _withCtx(() => [
+                                                          _createTextVNode(_toDisplayString(manualChipText(item)), 1)
+                                                        ]),
+                                                        _: 2
+                                                      }, 1032, ["onClick:close"]))
+                                                    : _createCommentVNode("", true)
+                                                ])
+                                              ]),
+                                              _createVNode(_component_v_btn, {
+                                                color: "secondary",
+                                                size: "small",
+                                                variant: "text",
+                                                class: "mr-1",
+                                                onClick: $event => (openManualMatch(item))
+                                              }, {
+                                                default: _withCtx(() => [
+                                                  _createVNode(_component_v_icon, {
+                                                    icon: "mdi-magnify",
+                                                    size: "small",
+                                                    class: "mr-1"
+                                                  }),
+                                                  _cache[23] || (_cache[23] = _createTextVNode(" 手动匹配 "))
+                                                ]),
+                                                _: 2
+                                              }, 1032, ["onClick"]),
+                                              _createVNode(_component_v_btn, {
+                                                color: "primary",
+                                                size: "small",
+                                                variant: "text",
+                                                loading: item.generating,
+                                                onClick: $event => (generateDanmu(item))
+                                              }, {
+                                                default: _withCtx(() => [
+                                                  _createVNode(_component_v_icon, {
+                                                    icon: "mdi-download",
+                                                    size: "small",
+                                                    class: "mr-1"
+                                                  }),
+                                                  _cache[24] || (_cache[24] = _createTextVNode(" 刮削 "))
+                                                ]),
+                                                _: 2
+                                              }, 1032, ["loading", "onClick"])
+                                            ]))
+                                          : _createCommentVNode("", true)
+                                    ], 64))
+                                  }), 128)),
+                                  (directoryContent.value.children && directoryContent.value.children.length === 0)
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_23, [
+                                        _createVNode(_component_v_alert, {
+                                          type: "info",
+                                          density: "compact",
+                                          class: "mb-2 text-caption",
+                                          variant: "tonal"
+                                        }, {
+                                          default: _withCtx(() => _cache[25] || (_cache[25] = [
+                                            _createTextVNode(" 该目录为空或没有支持的媒体文件 ")
+                                          ])),
+                                          _: 1
+                                        })
+                                      ]))
+                                    : _createCommentVNode("", true)
+                                ]))
+                              : (loading.value)
+                                ? (_openBlock(), _createElementBlock("div", _hoisted_24, [
+                                    _createVNode(_component_v_progress_linear, {
+                                      indeterminate: "",
+                                      color: "primary",
+                                      class: "mb-2"
+                                    }),
+                                    _cache[26] || (_cache[26] = _createElementVNode("div", { class: "text-caption text-grey" }, "正在扫描目录，请稍候...", -1))
+                                  ]))
+                                : (notConfigured.value)
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_25, [
+                                      _createVNode(_component_v_alert, {
+                                        type: "info",
+                                        density: "compact",
+                                        class: "mb-2 text-caption",
+                                        variant: "tonal"
+                                      }, {
+                                        default: _withCtx(() => _cache[27] || (_cache[27] = [
+                                          _createTextVNode(" 请先在配置中设置刮削路径 ")
+                                        ])),
+                                        _: 1
+                                      })
+                                    ]))
+                                  : (error.value)
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_26, [
+                                        _createVNode(_component_v_alert, {
+                                          type: "error",
+                                          density: "compact",
+                                          class: "mb-2 text-caption",
+                                          variant: "tonal"
+                                        }, {
+                                          default: _withCtx(() => [
+                                            _createTextVNode(_toDisplayString(error.value), 1)
+                                          ]),
+                                          _: 1
+                                        })
+                                      ]))
+                                    : (_openBlock(), _createElementBlock("div", _hoisted_27, [
+                                        _createVNode(_component_v_alert, {
+                                          type: "info",
+                                          density: "compact",
+                                          class: "mb-2 text-caption",
+                                          variant: "tonal"
+                                        }, {
+                                          default: _withCtx(() => _cache[28] || (_cache[28] = [
+                                            _createTextVNode(" 请先在配置中设置刮削路径 ")
+                                          ])),
+                                          _: 1
+                                        })
+                                      ]))
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        }),
+        _createVNode(_component_v_divider),
+        _createVNode(_component_v_card_actions, { class: "px-2 py-1" }, {
+          default: _withCtx(() => [
+            _createVNode(_component_v_btn, {
+              color: "info",
+              onClick: _cache[3] || (_cache[3] = $event => (emit('switch'))),
+              "prepend-icon": "mdi-cog",
+              variant: "text",
+              size: "small"
+            }, {
+              default: _withCtx(() => _cache[29] || (_cache[29] = [
+                _createTextVNode("配置")
+              ])),
+              _: 1
+            }),
+            _createVNode(_component_v_spacer),
+            _createVNode(_component_v_btn, {
+              color: "grey",
+              onClick: _cache[4] || (_cache[4] = $event => (emit('close'))),
+              "prepend-icon": "mdi-close",
+              variant: "text",
+              size: "small"
+            }, {
+              default: _withCtx(() => _cache[30] || (_cache[30] = [
+                _createTextVNode("关闭")
+              ])),
+              _: 1
+            })
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }),
+    _createVNode(_component_v_dialog, {
+      modelValue: manualDialog.value,
+      "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((manualDialog).value = $event)),
+      "max-width": "720"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_v_card, null, {
+          default: _withCtx(() => [
+            _createVNode(_component_v_card_title, { class: "text-subtitle-1" }, {
+              default: _withCtx(() => _cache[31] || (_cache[31] = [
+                _createTextVNode(" 手动匹配弹幕 ")
+              ])),
+              _: 1
+            }),
+            _createVNode(_component_v_card_text, null, {
+              default: _withCtx(() => [
+                _createElementVNode("div", _hoisted_28, " 当前选择：" + _toDisplayString(manualTargetItem.value?.name || '未选择文件'), 1),
+                (manualExistingMatch.value)
+                  ? (_openBlock(), _createBlock(_component_v_alert, {
+                      key: 0,
+                      type: "info",
+                      density: "compact",
+                      variant: "tonal",
+                      class: "mb-2 text-caption"
+                    }, {
+                      default: _withCtx(() => [
+                        _createTextVNode(" 已匹配（" + _toDisplayString(scopeLabel(manualExistingScope.value)) + "）：" + _toDisplayString(manualExistingMatch.value.animeTitle || `ID ${manualExistingMatch.value.animeId}`) + " ", 1),
+                        (manualExistingOffset.value)
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_29, "（集数偏移 " + _toDisplayString(formatOffset(manualExistingOffset.value)) + "）", 1))
+                          : _createCommentVNode("", true)
+                      ]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
+                (manualSearchError.value)
+                  ? (_openBlock(), _createBlock(_component_v_alert, {
+                      key: 1,
+                      type: "error",
+                      density: "compact",
+                      variant: "tonal",
+                      class: "mb-2 text-caption",
+                      closable: "",
+                      "onClick:close": _cache[5] || (_cache[5] = $event => (manualSearchError.value = null))
+                    }, {
+                      default: _withCtx(() => [
+                        _createTextVNode(_toDisplayString(manualSearchError.value), 1)
+                      ]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
+                _createVNode(_component_v_row, null, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_col, {
+                      cols: "12",
+                      md: "6"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_text_field, {
+                          modelValue: manualSearchKeyword.value,
+                          "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((manualSearchKeyword).value = $event)),
+                          label: "搜索关键字",
+                          density: "compact",
+                          variant: "outlined",
+                          clearable: "",
+                          "hide-details": "",
+                          onKeyup: _withKeys(performManualSearch, ["enter"])
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_v_col, {
+                      cols: "12",
+                      md: "4"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_select, {
+                          modelValue: manualSearchType.value,
+                          "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((manualSearchType).value = $event)),
+                          items: manualTypeOptions,
+                          "item-title": "title",
+                          "item-value": "value",
+                          density: "compact",
+                          variant: "outlined",
+                          "hide-details": "",
+                          label: "类型"
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    }),
+                    _createVNode(_component_v_col, {
+                      cols: "12",
+                      md: "2",
+                      class: "d-flex align-center"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_btn, {
+                          color: "primary",
+                          block: "",
+                          loading: manualSearchLoading.value,
+                          onClick: performManualSearch
+                        }, {
+                          default: _withCtx(() => _cache[32] || (_cache[32] = [
+                            _createTextVNode(" 搜索 ")
+                          ])),
+                          _: 1
+                        }, 8, ["loading"])
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                }),
+                (manualSearchLoading.value)
+                  ? (_openBlock(), _createBlock(_component_v_progress_linear, {
+                      key: 2,
+                      indeterminate: "",
+                      color: "primary",
+                      class: "mb-2"
+                    }))
+                  : _createCommentVNode("", true),
+                (manualTargetItem.value && manualTargetItem.value.type === 'media')
+                  ? (_openBlock(), _createBlock(_component_v_row, { key: 3 }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_col, { cols: "12" }, {
+                          default: _withCtx(() => [
+                            _createVNode(_component_v_radio_group, {
+                              modelValue: manualScope.value,
+                              "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((manualScope).value = $event)),
+                              inline: "",
+                              density: "compact",
+                              "hide-details": ""
+                            }, {
+                              default: _withCtx(() => [
+                                _createVNode(_component_v_radio, {
+                                  label: "仅当前文件",
+                                  value: "file"
+                                }),
+                                _createVNode(_component_v_radio, {
+                                  label: "整目录",
+                                  value: "directory"
+                                })
+                              ]),
+                              _: 1
+                            }, 8, ["modelValue"])
+                          ]),
+                          _: 1
+                        })
+                      ]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
+                _createVNode(_component_v_row, null, {
+                  default: _withCtx(() => [
+                    _createVNode(_component_v_col, {
+                      cols: "12",
+                      md: "5"
+                    }, {
+                      default: _withCtx(() => [
+                        _createVNode(_component_v_text_field, {
+                          modelValue: manualEpisodeOffset.value,
+                          "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((manualEpisodeOffset).value = $event)),
+                          label: "集数偏移",
+                          type: "number",
+                          density: "compact",
+                          variant: "outlined",
+                          hint: "本地集数 + 偏移 = 弹弹集数，如本地 13 对应弹弹 1 则填 -12",
+                          "persistent-hint": ""
+                        }, null, 8, ["modelValue"])
+                      ]),
+                      _: 1
+                    })
+                  ]),
+                  _: 1
+                }),
+                (!manualSearchLoading.value && manualSearchPerformed.value && manualSearchResults.value.length === 0)
+                  ? (_openBlock(), _createBlock(_component_v_alert, {
+                      key: 4,
+                      type: "info",
+                      density: "compact",
+                      variant: "tonal",
+                      class: "mb-2 text-caption"
+                    }, {
+                      default: _withCtx(() => _cache[33] || (_cache[33] = [
+                        _createTextVNode(" 未找到匹配结果，请调整关键字后再试。 ")
+                      ])),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
+                (manualSearchResults.value.length > 0)
+                  ? (_openBlock(), _createBlock(_component_v_list, {
+                      key: 5,
+                      lines: "two",
+                      density: "comfortable"
+                    }, {
+                      default: _withCtx(() => [
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(manualSearchResults.value, (anime) => {
+                          return (_openBlock(), _createBlock(_component_v_list_item, {
+                            key: anime.animeId,
+                            active: manualSelected.value && manualSelected.value.animeId === anime.animeId,
+                            onClick: $event => (selectManualResult(anime))
+                          }, {
+                            append: _withCtx(() => [
+                              _createVNode(_component_v_btn, {
+                                icon: "mdi-check",
+                                size: "small",
+                                variant: "text",
+                                color: manualSelected.value && manualSelected.value.animeId === anime.animeId ? 'primary' : 'grey'
+                              }, null, 8, ["color"])
+                            ]),
+                            default: _withCtx(() => [
+                              _createVNode(_component_v_list_item_title, null, {
+                                default: _withCtx(() => [
+                                  _createTextVNode(_toDisplayString(anime.animeTitle), 1)
+                                ]),
+                                _: 2
+                              }, 1024),
+                              _createVNode(_component_v_list_item_subtitle, null, {
+                                default: _withCtx(() => [
+                                  _createTextVNode(_toDisplayString(anime.typeDescription || '未知类型') + " ", 1),
+                                  (anime.episodeCount)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_30, " · " + _toDisplayString(anime.episodeCount) + " 集", 1))
+                                    : _createCommentVNode("", true),
+                                  (anime.rating)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_31, " · 评分 " + _toDisplayString(anime.rating), 1))
+                                    : _createCommentVNode("", true),
+                                  (anime.startDate)
+                                    ? (_openBlock(), _createElementBlock("span", _hoisted_32, " · " + _toDisplayString(formatDate(anime.startDate)), 1))
+                                    : _createCommentVNode("", true)
+                                ]),
+                                _: 2
+                              }, 1024)
+                            ]),
+                            _: 2
+                          }, 1032, ["active", "onClick"]))
+                        }), 128))
+                      ]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true)
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_v_card_actions, null, {
+              default: _withCtx(() => [
+                (manualExistingMatch.value)
+                  ? (_openBlock(), _createBlock(_component_v_btn, {
+                      key: 0,
+                      color: "grey",
+                      variant: "text",
+                      onClick: _cache[10] || (_cache[10] = $event => (clearManualMatch(manualTargetItem.value, manualExistingScope.value || (manualTargetItem.value?.type === 'directory' ? 'directory' : 'file'), true)))
+                    }, {
+                      default: _withCtx(() => _cache[34] || (_cache[34] = [
+                        _createTextVNode(" 清除匹配 ")
+                      ])),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true),
+                _createVNode(_component_v_spacer),
+                _createVNode(_component_v_btn, {
+                  variant: "text",
+                  onClick: closeManualDialog
+                }, {
+                  default: _withCtx(() => _cache[35] || (_cache[35] = [
+                    _createTextVNode("取消")
+                  ])),
+                  _: 1
+                }),
+                _createVNode(_component_v_btn, {
+                  color: "primary",
+                  disabled: !manualSelected.value,
+                  loading: manualSaving.value,
+                  onClick: confirmManualMatch
+                }, {
+                  default: _withCtx(() => _cache[36] || (_cache[36] = [
+                    _createTextVNode(" 保存 ")
+                  ])),
+                  _: 1
+                }, 8, ["disabled", "loading"])
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }, 8, ["modelValue"])
+  ]))
+}
+}
+
+};
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2861d87c"]]);
+
+export { Page as default };

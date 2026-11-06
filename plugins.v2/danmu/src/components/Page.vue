@@ -1,0 +1,1100 @@
+<template>
+  <div class="plugin-page">
+    <v-card flat class="rounded border">
+      <!-- 标题区域 -->
+      <v-card-title class="text-subtitle-1 d-flex align-center px-3 py-2 bg-primary-lighten-5">
+        <v-icon icon="mdi-video" class="mr-2" color="primary" size="small" />
+        <span>弹幕刮削</span>
+      </v-card-title>
+      
+      <v-card-text class="px-3 py-2">
+        <v-alert v-if="error" type="error" density="compact" class="mb-2 text-caption" variant="tonal" closable>{{ error }}</v-alert>
+        <v-alert v-if="successMessage" type="success" density="compact" class="mb-2 text-caption" variant="tonal" closable>{{ successMessage }}</v-alert>
+        <v-alert v-if="infoMessage" type="info" density="compact" class="mb-2 text-caption" variant="tonal" closable>{{ infoMessage }}</v-alert>
+
+        <!-- 状态卡片 -->
+        <v-card flat class="rounded mb-3 border status-card">
+          <v-card-title class="text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5">
+            <v-icon icon="mdi-information" class="mr-2" color="primary" size="small" />
+            <span>插件状态</span>
+          </v-card-title>
+          <v-card-text class="px-3 py-2">
+            <v-row>
+              <v-col cols="12" md="6">
+                <div class="status-item d-flex align-center py-2">
+                  <v-icon icon="mdi-power" size="small" :color="status.enabled ? 'success' : 'grey'" class="mr-3"></v-icon>
+                  <div class="status-content flex-grow-1">
+                    <div class="text-subtitle-2">插件状态</div>
+                    <div class="text-caption text-grey">{{ status.enabled ? '已启用' : '已禁用' }}</div>
+                  </div>
+                </div>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+
+        <!-- 刮削状态 -->
+        <v-card v-if="scrapingStatus.running" flat class="rounded mb-3 border status-card">
+          <v-card-title class="text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5">
+            <v-icon icon="mdi-progress-clock" class="mr-2" color="primary" size="small" />
+            <span>刮削进度</span>
+          </v-card-title>
+          <v-card-text class="px-3 py-2">
+            <v-row>
+              <v-col cols="12">
+                <div class="status-item d-flex align-center py-2">
+                  <v-icon icon="mdi-file-document" size="small" color="primary" class="mr-3"></v-icon>
+                  <div class="status-content flex-grow-1">
+                    <div class="text-subtitle-2">当前文件</div>
+                    <div class="text-caption text-grey">{{ scrapingStatus.current_file || '等待中...' }}</div>
+                  </div>
+                </div>
+              </v-col>
+              <v-col cols="12" md="6">
+                <div class="status-item d-flex align-center py-2">
+                  <v-icon icon="mdi-counter" size="small" color="primary" class="mr-3"></v-icon>
+                  <div class="status-content flex-grow-1">
+                    <div class="text-subtitle-2">处理进度</div>
+                    <div class="text-caption text-grey">
+                      {{ scrapingStatus.processed }}/{{ scrapingStatus.total }} 个文件
+                      ({{ scrapingStatus.success }} 成功, {{ scrapingStatus.failed }} 失败<template v-if="scrapingStatus.deferred">, {{ scrapingStatus.deferred }} 限流跳过</template><template v-if="scrapingStatus.skipped">, {{ scrapingStatus.skipped }} 无法判定</template>)
+                    </div>
+                  </div>
+                </div>
+              </v-col>
+              <v-col cols="12" md="6">
+                <div class="status-item d-flex align-center py-2">
+                  <v-icon icon="mdi-clock-outline" size="small" color="primary" class="mr-3"></v-icon>
+                  <div class="status-content flex-grow-1">
+                    <div class="text-subtitle-2">运行时间</div>
+                    <div class="text-caption text-grey">{{ formatDuration(scrapingStatus.duration) }}</div>
+                  </div>
+                </div>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+
+        <!-- 目录浏览 -->
+        <v-card flat class="rounded mb-3 border status-card">
+          <v-card-title class="text-caption d-flex align-center px-3 py-2 bg-primary-lighten-5">
+            <v-icon icon="mdi-folder" class="mr-2" color="primary" size="small" />
+            <span>目录浏览</span>
+            <v-spacer></v-spacer>
+            <v-text-field
+              v-model="searchKeyword"
+              density="compact"
+              variant="outlined"
+              hide-details
+              placeholder="搜索文件/目录"
+              prepend-inner-icon="mdi-magnify"
+              class="search-field"
+              style="max-width: 200px;"
+            ></v-text-field>
+            <v-btn
+              v-if="currentPath && directoryContent && directoryContent.type === 'directory'"
+              color="primary"
+              size="small"
+              variant="tonal"
+              class="ml-2"
+              prepend-icon="mdi-download-multiple"
+              :loading="batchStarting"
+              :disabled="scrapingStatus.running"
+              @click="scrapeCurrentDirectory"
+            >
+              刮削本目录
+            </v-btn>
+          </v-card-title>
+          <v-card-text class="px-3 py-2">
+            <v-row>
+              <v-col cols="12">
+                <div v-if="directoryContent" class="directory-content">
+                  <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2"></v-progress-linear>
+                  
+                  <!-- 返回按钮 -->
+                  <div v-if="currentPath" 
+                       class="back-item d-flex align-center py-2 mb-2"
+                       @click="goBack()">
+                    <v-icon icon="mdi-keyboard-backspace" size="small" color="primary" class="mr-2"></v-icon>
+                    <span class="text-subtitle-2 text-primary cursor-pointer">
+                      {{ directoryContent.is_root ? '返回目录列表' : '返回上级目录' }}
+                    </span>
+                  </div>
+                  
+                  <template v-for="(item, index) in filteredItems" :key="index">
+                    <!-- 目录项 -->
+                    <div v-if="item.type === 'directory'" 
+                         class="directory-item d-flex align-center py-2"
+                         @click="navigateToPath(item.path)">
+                      <v-icon icon="mdi-folder" size="small" color="primary" class="mr-2"></v-icon>
+                      <div class="flex-grow-1 d-flex align-center">
+                        <span class="text-subtitle-2 cursor-pointer">{{ item.name }}</span>
+                        <v-chip
+                          v-if="item.manual_match"
+                          size="small"
+                          color="secondary"
+                          class="ml-2"
+                          closable
+                          @click.stop
+                          @click:close.stop="clearManualMatch(item, item.manual_scope)"
+                        >
+                          {{ manualChipText(item) }}
+                        </v-chip>
+                      </div>
+                      <v-btn
+                        icon="mdi-download-multiple"
+                        size="small"
+                        variant="text"
+                        color="primary"
+                        class="mr-1"
+                        :disabled="scrapingStatus.running"
+                        @click.stop="scrapeDirectory(item.path)"
+                      ></v-btn>
+                      <v-btn
+                        icon="mdi-magnify"
+                        size="small"
+                        variant="text"
+                        color="secondary"
+                        class="mr-1"
+                        @click.stop="openManualMatch(item)"
+                      ></v-btn>
+                      <v-icon icon="mdi-chevron-right" size="small" color="grey"></v-icon>
+                    </div>
+                    
+                    <!-- 媒体文件项 -->
+                    <div v-else-if="item.type === 'media'" 
+                         class="media-item d-flex align-center py-2">
+                      <v-icon icon="mdi-video" size="small" color="info" class="mr-2"></v-icon>
+                      <div class="flex-grow-1">
+                        <div class="d-flex align-center">
+                          <span class="text-subtitle-2">{{ item.name }}</span>
+                          <v-chip size="small" color="info" class="ml-2" v-if="item.danmu_count > 0">
+                            弹幕: {{ item.danmu_count }}
+                            <v-tooltip v-if="countTooltip(item)" activator="parent" location="top">
+                              {{ countTooltip(item) }}
+                            </v-tooltip>
+                          </v-chip>
+                          <v-chip size="small" color="grey" class="ml-2" v-else>
+                            无弹幕
+                          </v-chip>
+                          <v-chip
+                            v-if="stateChip(item)"
+                            size="small"
+                            variant="tonal"
+                            :color="stateChip(item).color"
+                            class="ml-2"
+                          >
+                            {{ stateChip(item).text }}
+                            <v-tooltip activator="parent" location="top">
+                              <div v-for="line in stateChip(item).lines" :key="line">{{ line }}</div>
+                            </v-tooltip>
+                          </v-chip>
+                          <v-chip
+                            v-if="item.manual_match"
+                            size="small"
+                            color="secondary"
+                            class="ml-2"
+                            closable
+                            @click:close.stop="clearManualMatch(item, item.manual_scope)"
+                          >
+                            {{ manualChipText(item) }}
+                          </v-chip>
+                        </div>
+                      </div>
+                      <v-btn
+                        color="secondary"
+                        size="small"
+                        variant="text"
+                        class="mr-1"
+                        @click="openManualMatch(item)"
+                      >
+                        <v-icon icon="mdi-magnify" size="small" class="mr-1"></v-icon>
+                        手动匹配
+                      </v-btn>
+                      <v-btn
+                        color="primary"
+                        size="small"
+                        variant="text"
+                        :loading="item.generating"
+                        @click="generateDanmu(item)"
+                      >
+                        <v-icon icon="mdi-download" size="small" class="mr-1"></v-icon>
+                        刮削
+                      </v-btn>
+                    </div>
+                  </template>
+                  
+                  <!-- 空目录提示 -->
+                  <div v-if="directoryContent.children && directoryContent.children.length === 0" 
+                       class="text-center py-4">
+                    <v-alert type="info" density="compact" class="mb-2 text-caption" variant="tonal">
+                      该目录为空或没有支持的媒体文件
+                    </v-alert>
+                  </div>
+                </div>
+                
+                <!-- 初次加载中 -->
+                <div v-else-if="loading" class="text-center py-4">
+                  <v-progress-linear indeterminate color="primary" class="mb-2"></v-progress-linear>
+                  <div class="text-caption text-grey">正在扫描目录，请稍候...</div>
+                </div>
+
+                <!-- 未设置路径提示 -->
+                <div v-else-if="notConfigured" class="text-center py-4">
+                  <v-alert type="info" density="compact" class="mb-2 text-caption" variant="tonal">
+                    请先在配置中设置刮削路径
+                  </v-alert>
+                </div>
+
+                <!-- 错误提示 -->
+                <div v-else-if="error" class="text-center py-4">
+                  <v-alert type="error" density="compact" class="mb-2 text-caption" variant="tonal">{{ error }}</v-alert>
+                </div>
+
+                <!-- 默认提示 -->
+                <div v-else class="text-center py-4">
+                  <v-alert type="info" density="compact" class="mb-2 text-caption" variant="tonal">
+                    请先在配置中设置刮削路径
+                  </v-alert>
+                </div>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+      </v-card-text>
+      
+      <v-divider></v-divider>
+      
+      <v-card-actions class="px-2 py-1">
+        <v-btn color="info" @click="emit('switch')" prepend-icon="mdi-cog" variant="text" size="small">配置</v-btn>
+        <v-spacer></v-spacer>
+        <v-btn color="grey" @click="emit('close')" prepend-icon="mdi-close" variant="text" size="small">关闭</v-btn>
+      </v-card-actions>
+    </v-card>
+
+    <v-dialog v-model="manualDialog" max-width="720">
+      <v-card>
+        <v-card-title class="text-subtitle-1">
+          手动匹配弹幕
+        </v-card-title>
+        <v-card-text>
+          <div class="text-caption text-grey mb-2">
+            当前选择：{{ manualTargetItem?.name || '未选择文件' }}
+          </div>
+          <v-alert
+            v-if="manualExistingMatch"
+            type="info"
+            density="compact"
+            variant="tonal"
+            class="mb-2 text-caption"
+          >
+            已匹配（{{ scopeLabel(manualExistingScope) }}）：{{ manualExistingMatch.animeTitle || `ID ${manualExistingMatch.animeId}` }}
+            <span v-if="manualExistingOffset">（集数偏移 {{ formatOffset(manualExistingOffset) }}）</span>
+          </v-alert>
+          <v-alert
+            v-if="manualSearchError"
+            type="error"
+            density="compact"
+            variant="tonal"
+            class="mb-2 text-caption"
+            closable
+            @click:close="manualSearchError = null"
+          >
+            {{ manualSearchError }}
+          </v-alert>
+          <v-row>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="manualSearchKeyword"
+                label="搜索关键字"
+                density="compact"
+                variant="outlined"
+                clearable
+                hide-details
+                @keyup.enter="performManualSearch"
+              ></v-text-field>
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-select
+                v-model="manualSearchType"
+                :items="manualTypeOptions"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                label="类型"
+              ></v-select>
+            </v-col>
+            <v-col cols="12" md="2" class="d-flex align-center">
+              <v-btn
+                color="primary"
+                block
+                :loading="manualSearchLoading"
+                @click="performManualSearch"
+              >
+                搜索
+              </v-btn>
+            </v-col>
+          </v-row>
+          <v-progress-linear
+            v-if="manualSearchLoading"
+            indeterminate
+            color="primary"
+            class="mb-2"
+          ></v-progress-linear>
+          <v-row v-if="manualTargetItem && manualTargetItem.type === 'media'">
+            <v-col cols="12">
+              <v-radio-group
+                v-model="manualScope"
+                inline
+                density="compact"
+                hide-details
+              >
+                <v-radio label="仅当前文件" value="file"></v-radio>
+                <v-radio label="整目录" value="directory"></v-radio>
+              </v-radio-group>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="5">
+              <v-text-field
+                v-model="manualEpisodeOffset"
+                label="集数偏移"
+                type="number"
+                density="compact"
+                variant="outlined"
+                hint="本地集数 + 偏移 = 弹弹集数，如本地 13 对应弹弹 1 则填 -12"
+                persistent-hint
+              ></v-text-field>
+            </v-col>
+          </v-row>
+          <v-alert
+            v-if="!manualSearchLoading && manualSearchPerformed && manualSearchResults.length === 0"
+            type="info"
+            density="compact"
+            variant="tonal"
+            class="mb-2 text-caption"
+          >
+            未找到匹配结果，请调整关键字后再试。
+          </v-alert>
+          <v-list v-if="manualSearchResults.length > 0" lines="two" density="comfortable">
+            <v-list-item
+              v-for="anime in manualSearchResults"
+              :key="anime.animeId"
+              :active="manualSelected && manualSelected.animeId === anime.animeId"
+              @click="selectManualResult(anime)"
+            >
+              <v-list-item-title>{{ anime.animeTitle }}</v-list-item-title>
+              <v-list-item-subtitle>
+                {{ anime.typeDescription || '未知类型' }}
+                <span v-if="anime.episodeCount"> · {{ anime.episodeCount }} 集</span>
+                <span v-if="anime.rating"> · 评分 {{ anime.rating }}</span>
+                <span v-if="anime.startDate"> · {{ formatDate(anime.startDate) }}</span>
+              </v-list-item-subtitle>
+              <template #append>
+                <v-btn
+                  icon="mdi-check"
+                  size="small"
+                  variant="text"
+                  :color="manualSelected && manualSelected.animeId === anime.animeId ? 'primary' : 'grey'"
+                ></v-btn>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            color="grey"
+            variant="text"
+            v-if="manualExistingMatch"
+            @click="clearManualMatch(manualTargetItem, manualExistingScope || (manualTargetItem?.type === 'directory' ? 'directory' : 'file'), true)"
+          >
+            清除匹配
+          </v-btn>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="closeManualDialog">取消</v-btn>
+          <v-btn
+            color="primary"
+            :disabled="!manualSelected"
+            :loading="manualSaving"
+            @click="confirmManualMatch"
+          >
+            保存
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue';
+
+const props = defineProps({
+  api: { 
+    type: [Object, Function],
+    required: true,
+  }
+});
+
+const emit = defineEmits(['close', 'switch']);
+
+// 状态变量
+const error = ref(null);
+const successMessage = ref(null);
+const infoMessage = ref(null);
+const running = ref(false);
+const batchStarting = ref(false);
+let statusTimer = null;
+
+// 状态数据
+const status = reactive({
+  enabled: false
+});
+
+// 刮削状态
+const scrapingStatus = reactive({
+  running: false,
+  total: 0,
+  processed: 0,
+  success: 0,
+  failed: 0,
+  absent: 0,
+  empty: 0,
+  deferred: 0,
+  skipped: 0,
+  current_file: "",
+  duration: 0
+});
+
+// 当前目录内容和导航
+const directoryContent = ref(null);
+const currentPath = ref('');
+const loading = ref(false);
+const notConfigured = ref(false);
+const pathHistory = ref([]);
+
+// 搜索关键字
+const searchKeyword = ref('');
+
+// 手动匹配相关状态
+const manualDialog = ref(false);
+const manualContext = ref(null);
+const manualSearchKeyword = ref('');
+const manualSearchType = ref('tvseries');
+const manualTypeOptions = [
+  { title: '全部类型', value: 'all' },
+  { title: '电视动画', value: 'tvseries' },
+  { title: 'OVA/特别篇', value: 'ova' },
+  { title: '剧场版', value: 'movie' }
+];
+const manualSearchResults = ref([]);
+const manualSearchLoading = ref(false);
+const manualSearchError = ref(null);
+const manualSearchPerformed = ref(false);
+const manualSelected = ref(null);
+const manualSaving = ref(false);
+const manualScope = ref('directory');
+const manualEpisodeOffset = ref(0);
+
+const manualTargetItem = computed(() => manualContext.value?.item || null);
+const manualExistingMatch = computed(() => manualTargetItem.value?.manual_match || null);
+const manualExistingScope = computed(() => manualExistingMatch.value?.scope || null);
+const manualExistingOffset = computed(() => Number(manualExistingMatch.value?.episodeOffset) || 0);
+
+// 计算属性：过滤后的项目
+const filteredItems = computed(() => {
+  if (!directoryContent.value || !directoryContent.value.children) {
+    return [];
+  }
+  
+  if (!searchKeyword.value) {
+    return directoryContent.value.children;
+  }
+  
+  const keyword = searchKeyword.value.toLowerCase();
+  return directoryContent.value.children.filter(item => {
+    return item.name.toLowerCase().includes(keyword);
+  });
+});
+
+// 格式化时间
+function formatDuration(seconds) {
+  if (!seconds) return '0秒';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}小时`);
+  if (minutes > 0) parts.push(`${minutes}分钟`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}秒`);
+  return parts.join('');
+}
+
+// 获取状态
+// 轮询期间允许偶发失败，连续多次才提示并停止轮询，避免每 3 秒弹一次错误
+const MAX_STATUS_FAILURES = 5;
+let statusFailures = 0;
+
+async function getStatus(isPolling = false) {
+  try {
+    const data = await props.api.get('plugin/Danmu/status');
+    if (data) {
+      Object.assign(status, {
+        enabled: data.enabled
+      });
+
+      Object.assign(scrapingStatus, {
+        running: data.running,
+        total: data.total,
+        processed: data.processed,
+        success: data.success,
+        failed: data.failed,
+        absent: data.absent || 0,
+        empty: data.empty || 0,
+        deferred: data.deferred || 0,
+        skipped: data.skipped || 0,
+        current_file: data.current_file,
+        duration: data.duration
+      });
+
+      running.value = data.running;
+    }
+    statusFailures = 0;
+    return true;
+  } catch (err) {
+    console.error('获取状态失败:', err);
+    statusFailures += 1;
+    if (!isPolling || statusFailures >= MAX_STATUS_FAILURES) {
+      error.value = '获取状态失败，请检查网络或API';
+    }
+    return false;
+  }
+}
+
+// 导航到指定路径
+async function navigateToPath(path) {
+  try {
+    loading.value = true;
+    error.value = null;
+    notConfigured.value = false;
+
+    // 如果是空路径，加载根目录
+    if (!path) {
+      const data = await props.api.get('plugin/Danmu/scan_path');
+      if (data && data.success) {
+        directoryContent.value = data.data;
+        currentPath.value = '';
+        // 如果是多根目录，保存根路径历史
+        if (data.data.type === 'root') {
+          pathHistory.value = [];
+        }
+      } else {
+        const msg = data?.message || '';
+        if (msg.includes('未配置')) {
+          notConfigured.value = true;
+        } else {
+          error.value = msg || '加载根目录失败';
+        }
+      }
+    } else {
+      // 加载指定路径
+      const data = await props.api.get('plugin/Danmu/scan_subfolder', {
+        params: { subfolder_path: path }
+      });
+      
+      if (data && data.success) {
+        directoryContent.value = data.data;
+        currentPath.value = path;
+        
+        // 更新路径历史
+        if (!pathHistory.value.includes(path)) {
+          pathHistory.value.push(path);
+        }
+      } else {
+        error.value = data?.message || '加载目录失败';
+      }
+    }
+  } catch (err) {
+    console.error('导航失败:', err);
+    error.value = '加载目录失败，请检查网络或API';
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 返回上级目录
+function goBack() {
+  if (!currentPath.value) return;
+  
+  // 如果当前目录是用户设定的根目录，返回到初始目录列表
+  if (directoryContent.value?.is_root) {
+    navigateToPath('');
+  } else {
+    // 如果不是根目录，正常返回上级目录
+    const parentPath = currentPath.value.split('/').slice(0, -1).join('/');
+    navigateToPath(parentPath || '');
+  }
+}
+
+function closeManualDialog() {
+  manualDialog.value = false;
+  manualContext.value = null;
+  manualSelected.value = null;
+  manualScope.value = 'directory';
+  manualEpisodeOffset.value = 0;
+}
+
+function formatOffset(offset) {
+  return offset > 0 ? `+${offset}` : `${offset}`;
+}
+
+function scopeLabel(scope) {
+  if (!scope) {
+    return '目录';
+  }
+  if (scope === 'file') {
+    return '单文件';
+  }
+  if (scope === 'directory') {
+    return '目录';
+  }
+  return '未知';
+}
+
+function manualChipText(item) {
+  if (!item?.manual_match) return '';
+  const scopeText = item.manual_scope === 'file' ? '【单文件】' : '';
+  const title = item.manual_match.animeTitle || `ID ${item.manual_match.animeId}`;
+  const offset = Number(item.manual_match.episodeOffset) || 0;
+  const offsetText = offset ? `（偏移${formatOffset(offset)}）` : '';
+  return `${scopeText}${title}${offsetText}`;
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+// Danmu chip tooltip: when the server data was fetched, and whether the server now has a different count
+function countTooltip(item) {
+  const state = item?.scrape_state;
+  if (!state) return '';
+  const parts = [];
+  if (state.data_as_of) {
+    parts.push(`弹幕数据时间：${formatTime(state.data_as_of)}`);
+  }
+  if (state.server_count != null && state.server_count !== item.danmu_count) {
+    parts.push(`服务端最近一次：${state.server_count} 条`);
+  }
+  return parts.join('，');
+}
+
+const RETRY_LABELS = {
+  failed: { text: '待重试', color: 'error', desc: '上次刮削失败，会自动重试' },
+  empty: { text: '暂无弹幕', color: 'grey', desc: '弹弹play 已收录，但还没有弹幕' },
+  absent: { text: '未收录', color: 'grey', desc: '弹弹play 未收录该内容，会定期复查' },
+  ok: { text: '弹幕偏少', color: 'warning', desc: '弹幕较少，会定期复查是否增加' },
+};
+
+// Scrape lifecycle chip; settled files show nothing to keep the list quiet
+function stateChip(item) {
+  const state = item?.scrape_state;
+  if (!state || !state.phase || state.phase === 'settled') return null;
+  let chip;
+  if (state.phase === 'refreshing') {
+    chip = {
+      text: `刷新中 ${state.refresh_done ?? 0}/${state.refresh_total}`,
+      color: 'primary',
+      lines: ['新番弹幕还在增加，按计划定期刷新（明显变多才覆盖）'],
+    };
+  } else if (state.phase === 'pending') {
+    chip = { text: '待刮削', color: 'warning', lines: ['已登记，等待刮削完成'] };
+  } else {
+    const label = RETRY_LABELS[state.verdict] || RETRY_LABELS.failed;
+    chip = { text: label.text, color: label.color, lines: [label.desc] };
+  }
+  if (state.next_check) {
+    chip.lines.push(`下次检查：${formatTime(state.next_check)}`);
+  }
+  if (state.data_as_of) {
+    chip.lines.push(`弹幕数据时间：${formatTime(state.data_as_of)}`);
+  }
+  return chip;
+}
+
+function resolveDirectoryPath(item) {
+  if (!item) return null;
+  if (item.type === 'directory') {
+    return item.path;
+  }
+  return item.directory_path || (item.path ? item.path.split('/').slice(0, -1).join('/') : null);
+}
+
+function sanitizeKeyword(name) {
+  if (!name) return '';
+  return name.replace(/\.[^/.]+$/, '').replace(/[\._]/g, ' ').trim();
+}
+
+function openManualMatch(item) {
+  manualContext.value = { item };
+  manualDialog.value = true;
+  manualSearchError.value = null;
+  manualSearchResults.value = [];
+  manualSearchPerformed.value = false;
+  manualSearchLoading.value = false;
+  manualSaving.value = false;
+  manualSelected.value = item.manual_match ? { ...item.manual_match } : null;
+  manualEpisodeOffset.value = Number(item.manual_match?.episodeOffset) || 0;
+  const existingScope = item.manual_scope || item.manual_match?.scope;
+  if (item.type === 'directory') {
+    manualScope.value = 'directory';
+  } else if (existingScope === 'directory') {
+    manualScope.value = 'directory';
+  } else if (existingScope === 'file') {
+    manualScope.value = 'file';
+  } else {
+    manualScope.value = 'file';
+  }
+  manualSearchKeyword.value = sanitizeKeyword(item.name) || manualSearchKeyword.value || '';
+  manualSearchType.value = 'tvseries';
+}
+
+function selectManualResult(anime) {
+  manualSelected.value = anime;
+}
+
+async function performManualSearch() {
+  const keyword = manualSearchKeyword.value?.trim();
+  if (!keyword) {
+    manualSearchError.value = '请输入搜索关键字';
+    manualSearchResults.value = [];
+    manualSearchPerformed.value = true;
+    return;
+  }
+  manualSearchLoading.value = true;
+  manualSearchError.value = null;
+  manualSearchPerformed.value = true;
+  try {
+    const params = {
+      keyword,
+    };
+    if (manualSearchType.value && manualSearchType.value !== 'all') {
+      params.type = manualSearchType.value;
+    }
+    const res = await props.api.get('plugin/Danmu/search_anime', { params });
+    if (res && res.success) {
+      manualSearchResults.value = (res.data?.animes || []).slice(0, 50);
+    } else {
+      manualSearchResults.value = [];
+      manualSearchError.value = res?.message || '搜索失败，请稍后重试';
+    }
+  } catch (err) {
+    console.error('搜索弹弹失败:', err);
+    manualSearchResults.value = [];
+    manualSearchError.value = '搜索失败，请检查网络或API';
+  } finally {
+    manualSearchLoading.value = false;
+  }
+}
+
+async function confirmManualMatch() {
+  const targetItem = manualTargetItem.value;
+  if (!targetItem || !manualSelected.value) {
+    manualSearchError.value = '请选择一条匹配记录';
+    return;
+  }
+  manualSaving.value = true;
+  manualSearchError.value = null;
+  try {
+    const scope = manualScope.value;
+    const directoryPath = scope === 'directory'
+      ? resolveDirectoryPath(targetItem)
+      : undefined;
+    const offset = parseInt(manualEpisodeOffset.value, 10) || 0;
+    const payload = {
+      file_path: scope === 'file' ? targetItem.path : undefined,
+      directory: directoryPath,
+      scope,
+      episodeOffset: offset,
+      anime: manualSelected.value
+    };
+    const res = await props.api.post('plugin/Danmu/manual_match', payload);
+    if (res && res.success) {
+      successMessage.value = '手动匹配已保存';
+      if (manualContext.value?.item) {
+        manualContext.value.item.manual_match = res.data?.manual_match || manualSelected.value;
+        manualContext.value.item.manual_scope = scope;
+      }
+      manualDialog.value = false;
+      await navigateToPath(currentPath.value);
+    } else {
+      manualSearchError.value = res?.message || '保存匹配失败';
+    }
+  } catch (err) {
+    console.error('保存手动匹配失败:', err);
+    manualSearchError.value = '保存失败，请检查网络或API';
+  } finally {
+    manualSaving.value = false;
+  }
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) {
+    return (dateStr || '').split('T')[0] || dateStr;
+  }
+  return date.toISOString().split('T')[0];
+}
+
+// 批量刮削目录
+async function scrapeDirectory(path) {
+  if (!path) return;
+  error.value = null;
+  infoMessage.value = null;
+  batchStarting.value = true;
+  try {
+    const res = await props.api.get('plugin/Danmu/scrape_directory', {
+      params: { directory_path: path }
+    });
+    if (res && res.success) {
+      successMessage.value = res.message || '已开始批量刮削';
+      await getStatus();
+      startStatusPolling();
+    } else {
+      error.value = res?.message || '启动批量刮削失败';
+    }
+  } catch (err) {
+    console.error('启动批量刮削失败:', err);
+    error.value = '启动批量刮削失败，请检查网络或API';
+  } finally {
+    batchStarting.value = false;
+  }
+}
+
+function scrapeCurrentDirectory() {
+  scrapeDirectory(currentPath.value);
+}
+
+// 无收录占比过高时给一句解释：这类内容弹弹play 本来就没有，
+// 再扫一次或做手动匹配都不会有结果
+function buildCoverageHint() {
+  const { absent, total } = scrapingStatus;
+  if (!absent || !total) return null;
+  const ratio = absent / total;
+  if (ratio < 0.5) return null;
+  return `本次 ${absent}/${total} 个文件在弹弹play 无收录（${Math.round(ratio * 100)}%）。`
+    + '弹弹play 以番剧弹幕为主，国产剧、综艺、欧美剧等通常没有收录——'
+    + '这类文件重复刮削或手动匹配都不会有结果。';
+}
+
+function startStatusPolling() {
+  if (statusTimer) return;
+  statusFailures = 0;
+  statusTimer = setInterval(async () => {
+    const ok = await getStatus(true);
+    if (!ok) {
+      // 连续失败说明后端不可达，继续轮询只会不断刷错
+      if (statusFailures >= MAX_STATUS_FAILURES) {
+        stopStatusPolling();
+      }
+      return;
+    }
+    if (!scrapingStatus.running) {
+      stopStatusPolling();
+      successMessage.value = `批量刮削完成：成功 ${scrapingStatus.success}`
+        + (scrapingStatus.absent ? `，无收录 ${scrapingStatus.absent}` : '')
+        + (scrapingStatus.empty ? `，暂无弹幕 ${scrapingStatus.empty}` : '')
+        + `，失败 ${scrapingStatus.failed}`
+        + (scrapingStatus.deferred ? `，限流跳过 ${scrapingStatus.deferred}` : '')
+        + (scrapingStatus.skipped ? `，无法判定 ${scrapingStatus.skipped}` : '')
+        + `，共 ${scrapingStatus.total}`;
+      infoMessage.value = buildCoverageHint();
+      await navigateToPath(currentPath.value);
+    }
+  }, 3000);
+}
+
+function stopStatusPolling() {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
+}
+
+// 生成弹幕
+async function generateDanmu(item) {
+  error.value = null; // 清空旧错误
+  infoMessage.value = null;
+  try {
+    item.generating = true;
+    const result = await props.api.get('plugin/Danmu/generate_danmu', {
+      params: { file_path: item.path }
+    });
+    const outcome = result?.data?.outcome;
+    if (outcome === 'absent' || outcome === 'empty') {
+      // 不是失败：报成错误会诱导用户去重扫、去做手动匹配，而这些都不可能奏效
+      infoMessage.value = outcome === 'absent'
+        ? '弹弹play 未收录该内容，因此没有弹幕可用（不是匹配失败）'
+        : '该内容已收录，但目前还没有弹幕，之后可能会有';
+    } else if (result && result.success) {
+      successMessage.value = '弹幕生成成功';
+      await navigateToPath(currentPath.value);
+    } else {
+      console.log('后端返回：', result);
+      error.value = result?.message || '弹幕生成失败';
+    }
+  } catch (err) {
+    error.value = '生成弹幕失败，请检查网络或API';
+  } finally {
+    item.generating = false;
+  }
+}
+
+async function clearManualMatch(item, scopeOverride = null, keepDialog = false) {
+  if (!item) {
+    return;
+  }
+  manualSearchError.value = null;
+  try {
+    const scope = (scopeOverride || item?.manual_scope || (item?.type === 'directory' ? 'directory' : 'file'));
+    const params = { scope };
+    if (scope === 'file') {
+      params.file_path = item.path;
+    } else {
+      params.directory = resolveDirectoryPath(item);
+      if (!params.directory) {
+        manualSearchError.value = '未能确定需要移除的目录';
+        return;
+      }
+    }
+    const res = await props.api.get('plugin/Danmu/remove_manual_match', { params });
+    if (res && res.success) {
+      successMessage.value = '已移除手动匹配';
+      if (manualContext.value?.item?.path === item.path) {
+        manualContext.value.item.manual_match = null;
+        manualContext.value.item.manual_scope = null;
+        manualSelected.value = null;
+        if (keepDialog && manualTargetItem.value?.type === 'media') {
+          manualScope.value = 'file';
+        }
+        if (!keepDialog) {
+          manualDialog.value = false;
+        }
+      }
+      await navigateToPath(currentPath.value);
+    } else {
+      manualSearchError.value = res?.message || '移除手动匹配失败';
+    }
+  } catch (err) {
+    console.error('移除手动匹配失败:', err);
+    manualSearchError.value = '移除手动匹配失败，请检查网络或API';
+  }
+}
+
+// 初始化
+onMounted(async () => {
+  // 状态与根目录并行加载
+  await Promise.all([getStatus(), navigateToPath('')]);
+  // 页面打开时如有刮削任务在跑（如定时全局刮削），继续跟踪进度
+  if (scrapingStatus.running) {
+    startStatusPolling();
+  }
+});
+
+// 清理
+onUnmounted(() => {
+  stopStatusPolling();
+});
+</script>
+
+<style scoped>
+.plugin-page {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 0.5rem;
+}
+
+.bg-primary-lighten-5 {
+  background-color: rgba(var(--v-theme-primary), 0.07);
+}
+
+.border {
+  border: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.status-card {
+  background-image: linear-gradient(to right, rgba(var(--v-theme-surface), 0.98), rgba(var(--v-theme-surface), 0.95)), 
+                    repeating-linear-gradient(45deg, rgba(var(--v-theme-primary), 0.03), rgba(var(--v-theme-primary), 0.03) 10px, transparent 10px, transparent 20px);
+  background-attachment: fixed;
+  box-shadow: 0 1px 2px rgba(var(--v-border-color), 0.05) !important;
+  transition: all 0.3s ease;
+}
+
+.status-card:hover {
+  box-shadow: 0 3px 6px rgba(var(--v-border-color), 0.1) !important;
+}
+
+.status-item {
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  padding: 0.5rem;
+  margin-bottom: 4px;
+}
+
+.status-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.03);
+}
+
+.text-subtitle-2 {
+  font-size: 14px !important;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.directory-content {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.directory-item {
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.directory-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.03);
+}
+
+.back-item {
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 1px dashed rgba(var(--v-theme-primary), 0.3);
+}
+
+.back-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.05);
+  border-color: rgba(var(--v-theme-primary), 0.5);
+}
+
+.media-item {
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.media-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.03);
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+</style>
