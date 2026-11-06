@@ -1,5 +1,6 @@
 import asyncio
 import traceback
+from typing import List
 
 import discord
 from discord import app_commands
@@ -68,29 +69,54 @@ class MPCog(commands.Cog):
         if not medias:
             await interaction.followup.send(f"没有找到「{title}」，换个关键词试试？")
             return
-        for media in medias[:3]:
-            view = SubscribeView(self.subscribechain, media, meta)
-            view.message = await interaction.followup.send(embed=media_embed(media), view=view, wait=True)
+        # 所有结果放在一条消息里：默认展示第一个，下拉框切换
+        view = SubscribeView(self.subscribechain, medias[:10], meta)
+        content = f"找到 {len(view.medias)} 个结果，可在下拉框中切换" if len(view.medias) > 1 else None
+        view.message = await interaction.followup.send(content=content, embed=media_embed(view.media),
+                                                       view=view, wait=True)
 
 
 class SubscribeView(discord.ui.View):
 
-    def __init__(self, subscribechain: SubscribeChain, media: MediaInfo, meta):
+    def __init__(self, subscribechain: SubscribeChain, medias: List[MediaInfo], meta):
         super().__init__(timeout=180)
         self.subscribechain = subscribechain
-        self.media = media
+        self.medias = medias
+        self.index = 0
         self.meta = meta
         self.message = None
         self.busy = False
+        if len(medias) > 1:
+            self.picker = discord.ui.Select(placeholder="选择其他结果", row=0, options=[
+                discord.SelectOption(label=m.title_year[:100], value=str(n), default=n == 0,
+                                     description=(m.overview or "")[:100] or None)
+                for n, m in enumerate(medias)
+            ])
+            self.picker.callback = self.pick
+            self.add_item(self.picker)
 
-    @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple)
+    @property
+    def media(self) -> MediaInfo:
+        return self.medias[self.index]
+
+    async def pick(self, interaction: discord.Interaction):
+        self.index = int(self.picker.values[0])
+        for option in self.picker.options:
+            option.default = option.value == self.picker.values[0]
+        await interaction.response.edit_message(embed=media_embed(self.media), view=self)
+
+    def lock(self, locked: bool):
+        for item in self.children:
+            item.disabled = locked
+
+    @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple, row=1)
     async def subscribe(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 先锁住按钮，防止重复点击
+        # 先锁住整个面板，防止重复点击或订阅中途切换
         if self.busy:
             await interaction.response.send_message("正在处理中，请稍候", ephemeral=True)
             return
         self.busy = True
-        button.disabled = True
+        self.lock(True)
         button.label = "订阅中..."
         await interaction.response.edit_message(view=self)
 
@@ -114,11 +140,10 @@ class SubscribeView(discord.ui.View):
             button.label = "✅ 已订阅"
             button.style = discord.ButtonStyle.green
             self.stop()
-            await interaction.edit_original_response(view=self)
-            await interaction.followup.send(f"已添加订阅 {media.title_year}")
+            await interaction.edit_original_response(content=f"✅ 已添加订阅 {media.title_year}", view=self)
         else:
             self.busy = False
-            button.disabled = False
+            self.lock(False)
             button.label = "订阅"
             await interaction.edit_original_response(view=self)
             await interaction.followup.send(f"❌ 订阅 {media.title_year} 失败：{err}", ephemeral=True)
@@ -129,8 +154,7 @@ class SubscribeView(discord.ui.View):
 
     async def on_timeout(self):
         # 超时后按钮变灰，而不是看起来能点、点了却报"交互失败"
-        for item in self.children:
-            item.disabled = True
+        self.lock(True)
         if self.message:
             try:
                 await self.message.edit(view=self)

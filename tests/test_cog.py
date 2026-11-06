@@ -71,7 +71,7 @@ async def main():
     # 订阅成功：按钮变灰并显示已订阅
     chain = MagicMock()
     chain.add.return_value = (1, "")
-    view = cog.SubscribeView(chain, media(), types.SimpleNamespace(begin_season=None))
+    view = cog.SubscribeView(chain, [media()], types.SimpleNamespace(begin_season=None))
     btn = view.subscribe
     i = interaction()
     await btn.callback(i)
@@ -83,21 +83,21 @@ async def main():
         chain = MagicMock()
         chain.add.side_effect = ret if isinstance(ret, Exception) else None
         chain.add.return_value = ret
-        view = cog.SubscribeView(chain, media(), types.SimpleNamespace(begin_season=None))
+        view = cog.SubscribeView(chain, [media()], types.SimpleNamespace(begin_season=None))
         i = interaction()
         await view.subscribe.callback(i)
         assert not view.subscribe.disabled and view.subscribe.label == "订阅"
         assert "失败" in i.followup.send.call_args.args[0]
 
     # 处理中再点：不会重复订阅
-    view = cog.SubscribeView(MagicMock(), media(), types.SimpleNamespace(begin_season=None))
+    view = cog.SubscribeView(MagicMock(), [media()], types.SimpleNamespace(begin_season=None))
     view.busy = True
     i = interaction()
     await view.subscribe.callback(i)
     view.subscribechain.add.assert_not_called()
 
     # 超时：按钮全部变灰
-    view = cog.SubscribeView(MagicMock(), media(), types.SimpleNamespace(begin_season=None))
+    view = cog.SubscribeView(MagicMock(), [media()], types.SimpleNamespace(begin_season=None))
     view.message = MagicMock(edit=AsyncMock())
     await view.on_timeout()
     assert all(c.disabled for c in view.children)
@@ -112,7 +112,15 @@ async def main():
     c.searchchain.search_medias = MagicMock(return_value=[media(tmdb_id=n) for n in range(5)])
     i = interaction()
     await c.subscribe.callback(c, i, "沙丘")
-    assert i.followup.send.await_count == 3
+    assert i.followup.send.await_count == 1
+    view = i.followup.send.call_args.kwargs["view"]
+    assert len(view.picker.options) == 5
+
+    # 下拉框切换结果
+    i = interaction()
+    view.picker._values = ["3"]
+    await view.pick(i)
+    assert view.media.tmdb_id == 3 and view.picker.options[3].default and not view.picker.options[0].default
 
     # 出错时给用户提示
     i = interaction()
