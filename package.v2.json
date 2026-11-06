@@ -2,12 +2,13 @@
   "Discord": {
     "name": "Discord 消息推送",
     "description": "添加discord消息推送",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "icon": "https://raw.githubusercontent.com/Codaaaaaa/MoviePilot-Plugins/main/icons/discord.png",
     "color": "#3B5E8E",
     "author": "Codaaaaaa",
     "level": 1,
     "history": {
+      "v1.7.1": "兼容 MoviePilot v3：按 media_source/media_id 识别和订阅媒体",
       "v1.7.0": "只保留 /subscribe：片名自动补全、结果合并为一条消息、显示订阅/入库状态、剧集可选季、记录订阅人，出错有提示，按钮防重复点击",
       "v1.6.6": "删除 /download 指令",
       "v1.6.1": "删除gpt逻辑只保留订阅"

@@ -8,7 +8,7 @@ import sys
 import types
 from enum import Enum
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 # ---- 假的 MoviePilot 模块 ----
 def stub(name, **attrs):
@@ -35,7 +35,16 @@ stub("app.core.metainfo", MetaInfo=lambda title: types.SimpleNamespace(begin_sea
 stub("app.db")
 stub("app.db.subscribe_oper", SubscribeOper=MagicMock)
 stub("app.schemas")
-stub("app.schemas.types", MediaType=MediaType)
+class MediaSource(Enum):
+    TMDB = "themoviedb"
+
+
+stub("app.schemas.types", MediaType=MediaType, MediaSource=MediaSource)
+
+
+# MoviePilot v2 / v3 的真实签名：v3 不再接受 tmdbid
+def v2_recognize(meta=None, mtype=None, source=None, mediaid=None, tmdbid=None, doubanid=None, cache=True): ...
+def v3_recognize(meta=None, mtype=None, media_source=None, media_id=None, episode_group=None, cache=True): ...
 
 path = Path(__file__).parent.parent / "plugins.v2/discord/cogs/moviepilot_cog.py"
 spec = importlib.util.spec_from_file_location("cog", path)
@@ -147,11 +156,14 @@ async def main():
     assert cog.parse_choice("tmdb:电视剧:9:2") == (MediaType.TV, 9, 2)
     assert cog.parse_choice("沙丘") is None and cog.parse_choice("tmdb:坏的") is None
     c.searchchain.search_medias = MagicMock()
-    c.searchchain.recognize_media = MagicMock(return_value=media(tmdb_id=9, type=MediaType.TV))
-    i = interaction()
-    await c.subscribe.callback(c, i, "tmdb:电视剧:9:2")
+    for fake, expect in [(v2_recognize, dict(tmdbid=9)),
+                         (v3_recognize, dict(media_source=MediaSource.TMDB, media_id="9"))]:
+        c.searchchain.recognize_media = create_autospec(fake, return_value=media(tmdb_id=9, type=MediaType.TV))
+        i = interaction()
+        await c.subscribe.callback(c, i, "tmdb:电视剧:9:2")
+        c.searchchain.recognize_media.assert_called_once_with(mtype=MediaType.TV, **expect)
+        assert "失败" not in str(i.followup.send.call_args)
     c.searchchain.search_medias.assert_not_called()
-    c.searchchain.recognize_media.assert_called_once_with(mtype=MediaType.TV, tmdbid=9)
     assert i.followup.send.call_args.kwargs["view"].wanted_season == 2
 
     # 入库状态
@@ -194,6 +206,11 @@ async def main():
     view.render()
     assert view.subscribe.disabled and view.subscribe.label == "已在媒体库" and view.season_picker is None
     set_status()
+
+    # v3 的媒体自带 media_source/media_id 时直接用
+    m3 = media(media_source="douban", media_id="abc")
+    assert cog.media_identity(v3_recognize, m3) == {"media_source": "douban", "media_id": "abc"}
+    assert cog.media_identity(v2_recognize, m3) == {"tmdbid": 1}
 
     # 出错时给用户提示
     i = interaction()

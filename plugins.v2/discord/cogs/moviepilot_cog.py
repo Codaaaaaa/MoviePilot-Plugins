@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import traceback
 from typing import List
 
@@ -24,6 +25,19 @@ async def reply(interaction: discord.Interaction, content: str, **kwargs):
             await interaction.response.send_message(content, **kwargs)
     except discord.HTTPException as e:
         logger.error(f"Discord 回复失败: {e}")
+
+
+def media_identity(func, media: MediaInfo = None, tmdbid: int = None) -> dict:
+    """
+    MoviePilot v2 用 tmdbid 标识媒体，v3 改成 media_source + media_id（tmdbid 会被当成多余参数忽略或报错），
+    按目标函数的签名选用对应的参数
+    """
+    if "tmdbid" in inspect.signature(func).parameters:
+        return {"tmdbid": tmdbid or media.tmdb_id}
+    if media is not None and getattr(media, "media_id", None):
+        return {"media_source": media.media_source, "media_id": media.media_id}
+    from app.schemas.types import MediaSource  # 只有 v3 有
+    return {"media_source": MediaSource.TMDB, "media_id": str(tmdbid or media.tmdb_id)}
 
 
 def log_error(where: str, error: Exception):
@@ -72,7 +86,8 @@ class MPCog(commands.Cog):
         if picked:
             # 从自动补全选的，直接按 TMDB ID 识别，不用再搜
             mtype, tmdbid, season = picked
-            media = await asyncio.to_thread(self.searchchain.recognize_media, mtype=mtype, tmdbid=tmdbid)
+            recognize = self.searchchain.recognize_media
+            media = await asyncio.to_thread(recognize, mtype=mtype, **media_identity(recognize, tmdbid=tmdbid))
             medias = [media] if media else []
         else:
             season = MetaInfo(title=title).begin_season
@@ -128,7 +143,7 @@ def media_status(chain: SubscribeChain, media: MediaInfo, season: int = None):
     :return: (完整媒体信息, 季号, 已订阅, 入库状态文字, 是否还需要订阅)
     """
     if media.type == MediaType.TV and not media.seasons:
-        media = chain.recognize_media(mtype=media.type, tmdbid=media.tmdb_id) or media
+        media = chain.recognize_media(mtype=media.type, **media_identity(chain.recognize_media, media)) or media
     if media.type == MediaType.TV:
         seasons = sorted(s for s in (media.seasons or {}) if s > 0)
         # 没指定季（或季号不存在）时默认最新一季
@@ -137,7 +152,8 @@ def media_status(chain: SubscribeChain, media: MediaInfo, season: int = None):
     else:
         season = None
     try:
-        subscribed = SubscribeOper().exists(tmdbid=media.tmdb_id, season=season)
+        exists = SubscribeOper().exists
+        subscribed = exists(**media_identity(exists, media), season=season)
         exist_flag, no_exists = DownloadChain().get_no_exists_info(meta=MetaInfo(media.title), mediainfo=media)
         state, need = library_state(media, season, exist_flag, no_exists)
     except Exception as e:
@@ -275,7 +291,7 @@ class SubscribeView(discord.ui.View):
                 title=media.title,
                 year=media.year,
                 mtype=media.type,
-                tmdbid=media.tmdb_id,
+                **media_identity(self.subscribechain.add, media),
                 season=self.season,
                 exist_ok=True,
                 # MoviePilot 订阅记录里显示真实的 Discord 用户
