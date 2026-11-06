@@ -6,10 +6,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from app.log import logger
+from app.chain.download import DownloadChain
 from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
 from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
+from app.db.subscribe_oper import SubscribeOper
 from app.schemas.types import MediaType
 
 
@@ -79,8 +81,9 @@ class MPCog(commands.Cog):
             return
         # 所有结果放在一条消息里：默认展示第一个，下拉框切换
         view = SubscribeView(self.subscribechain, medias[:10], season)
+        await view.load(season)
         content = f"找到 {len(view.medias)} 个结果，可在下拉框中切换" if len(view.medias) > 1 else None
-        view.message = await interaction.followup.send(content=content, embed=media_embed(view.media),
+        view.message = await interaction.followup.send(content=content, embed=view.render(),
                                                        view=view, wait=True)
 
     @subscribe.autocomplete("title")
@@ -115,6 +118,50 @@ def parse_choice(value: str):
         return None
 
 
+TYPE_NAME = {MediaType.MOVIE: "🎬 电影", MediaType.TV: "📺 剧集"}
+
+
+def media_status(chain: SubscribeChain, media: MediaInfo, season: int = None):
+    """
+    补全剧集的季信息，并查询订阅和入库状态（同步，放线程里跑）
+    :return: (完整媒体信息, 季号, 已订阅, 入库状态文字, 是否还需要订阅)
+    """
+    if media.type == MediaType.TV and not media.seasons:
+        media = chain.recognize_media(mtype=media.type, tmdbid=media.tmdb_id) or media
+    if media.type == MediaType.TV:
+        seasons = sorted(s for s in (media.seasons or {}) if s > 0)
+        # 没指定季（或季号不存在）时默认最新一季
+        if seasons and season not in seasons:
+            season = seasons[-1]
+    else:
+        season = None
+    try:
+        subscribed = SubscribeOper().exists(tmdbid=media.tmdb_id, season=season)
+        exist_flag, no_exists = DownloadChain().get_no_exists_info(meta=MetaInfo(media.title), mediainfo=media)
+        state, need = library_state(media, season, exist_flag, no_exists)
+    except Exception as e:
+        log_error("查询状态", e)
+        subscribed, state, need = False, "状态未知", True
+    return media, season, subscribed, state, need
+
+
+def library_state(media: MediaInfo, season: int, exist_flag: bool, no_exists: dict):
+    """根据 get_no_exists_info 的结果给出 (入库状态文字, 是否还需要订阅)"""
+    if media.type == MediaType.TV and season and not (media.seasons or {}).get(season):
+        return f"第 {season} 季未播出", True
+    if exist_flag:
+        return "✅ 已入库", False
+    if media.type != MediaType.TV or not no_exists:
+        return "未入库", True
+    # no_exists: {媒体key: {季: NotExistMediaInfo}}，没列出的季就是齐全的；episodes 为空表示整季缺失
+    info = next(iter(no_exists.values()), {}).get(season)
+    if not info:
+        return f"✅ 第 {season} 季已入库", False
+    if info.episodes:
+        return f"第 {season} 季缺 {len(info.episodes)} 集", True
+    return f"第 {season} 季未入库", True
+
+
 class SubscribeView(discord.ui.View):
 
     def __init__(self, subscribechain: SubscribeChain, medias: List[MediaInfo], season: int = None):
@@ -122,13 +169,19 @@ class SubscribeView(discord.ui.View):
         self.subscribechain = subscribechain
         self.medias = medias
         self.index = 0
-        self.season = season
+        # 用户在片名里指定的季，切换条目时以它为准
+        self.wanted_season = season
+        self.season = None
+        self.subscribed = False
+        self.state = ""
+        self.need = True
+        self.season_picker = None
         self.message = None
         self.busy = False
         if len(medias) > 1:
             self.picker = discord.ui.Select(placeholder="选择其他结果", row=0, options=[
-                discord.SelectOption(label=m.title_year[:100], value=str(n), default=n == 0,
-                                     description=(m.overview or "")[:100] or None)
+                discord.SelectOption(label=f"{TYPE_NAME.get(m.type, '')} {m.title_year}"[:100], value=str(n),
+                                     default=n == 0, description=(m.overview or "")[:100] or None)
                 for n, m in enumerate(medias)
             ])
             self.picker.callback = self.pick
@@ -138,17 +191,72 @@ class SubscribeView(discord.ui.View):
     def media(self) -> MediaInfo:
         return self.medias[self.index]
 
+    async def load(self, season: int = None):
+        """查询当前条目的季、订阅、入库状态"""
+        media, self.season, self.subscribed, self.state, self.need = await asyncio.to_thread(
+            media_status, self.subscribechain, self.media, season)
+        self.medias[self.index] = media
+
+    def render(self) -> discord.Embed:
+        """按当前状态刷新季选择框和订阅按钮，返回详情卡片"""
+        media = self.media
+        if self.season_picker:
+            self.remove_item(self.season_picker)
+            self.season_picker = None
+        seasons = sorted(s for s in (media.seasons or {}) if s > 0) if media.type == MediaType.TV else []
+        if len(seasons) > 1:
+            self.season_picker = discord.ui.Select(placeholder="选择季", row=1, options=[
+                discord.SelectOption(label=f"第 {s} 季", value=str(s), default=s == self.season,
+                                     description=f"{len(media.seasons.get(s) or [])} 集")
+                for s in seasons[-25:]
+            ])
+            self.season_picker.callback = self.pick_season
+            self.add_item(self.season_picker)
+
+        button = self.subscribe
+        button.disabled = self.subscribed or not self.need
+        if self.subscribed:
+            button.label, button.style = "✅ 已订阅", discord.ButtonStyle.green
+        elif not self.need:
+            button.label, button.style = "已在媒体库", discord.ButtonStyle.grey
+        else:
+            button.label = f"订阅第 {self.season} 季" if self.season else "订阅"
+            button.style = discord.ButtonStyle.blurple
+
+        embed = media_embed(media)
+        embed.add_field(name="类型", value=TYPE_NAME.get(media.type, "未知"))
+        if self.season:
+            embed.add_field(name="季", value=f"第 {self.season} 季（共 {len(seasons)} 季）")
+        embed.add_field(name="状态", value=" · ".join(filter(None, ["🔔 已订阅" if self.subscribed else "", self.state])) or "未知")
+        return embed
+
+    async def switch(self, interaction: discord.Interaction, season: int = None):
+        """切换条目或季：查状态可能超过 3 秒，先 defer 再更新"""
+        if self.busy:
+            await interaction.response.send_message("正在处理中，请稍候", ephemeral=True)
+            return
+        self.busy = True
+        await interaction.response.defer()
+        try:
+            await self.load(season)
+        finally:
+            self.busy = False
+        await interaction.edit_original_response(embed=self.render(), view=self)
+
     async def pick(self, interaction: discord.Interaction):
         self.index = int(self.picker.values[0])
         for option in self.picker.options:
             option.default = option.value == self.picker.values[0]
-        await interaction.response.edit_message(embed=media_embed(self.media), view=self)
+        await self.switch(interaction, self.wanted_season)
+
+    async def pick_season(self, interaction: discord.Interaction):
+        await self.switch(interaction, int(self.season_picker.values[0]))
 
     def lock(self, locked: bool):
         for item in self.children:
             item.disabled = locked
 
-    @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple, row=1)
+    @discord.ui.button(label="订阅", style=discord.ButtonStyle.blurple, row=2)
     async def subscribe(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 先锁住整个面板，防止重复点击或订阅中途切换
         if self.busy:
@@ -175,16 +283,16 @@ class SubscribeView(discord.ui.View):
             log_error("订阅", e)
             sid, err = None, str(e)
 
+        # 面板保持可用，可以接着订阅别的季或别的结果
+        self.busy = False
+        self.lock(False)
         if sid:
-            button.label = "✅ 已订阅"
-            button.style = discord.ButtonStyle.green
-            self.stop()
-            await interaction.edit_original_response(content=f"✅ 已添加订阅 {media.title_year}", view=self)
+            self.subscribed = True
+            season = f" 第 {self.season} 季" if self.season else ""
+            await interaction.edit_original_response(content=f"✅ 已添加订阅 {media.title_year}{season}",
+                                                     embed=self.render(), view=self)
         else:
-            self.busy = False
-            self.lock(False)
-            button.label = "订阅"
-            await interaction.edit_original_response(view=self)
+            await interaction.edit_original_response(embed=self.render(), view=self)
             await interaction.followup.send(f"❌ 订阅 {media.title_year} 失败：{err}", ephemeral=True)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):

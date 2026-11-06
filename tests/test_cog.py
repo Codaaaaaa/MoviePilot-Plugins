@@ -64,7 +64,17 @@ def interaction():
     return i
 
 
+def set_status(subscribed=False, exist=(False, {})):
+    cog.SubscribeOper = MagicMock(return_value=MagicMock(exists=MagicMock(return_value=subscribed)))
+    cog.DownloadChain = MagicMock(return_value=MagicMock(get_no_exists_info=MagicMock(return_value=exist)))
+
+
+def missing(season, episodes):
+    return {"k": {season: types.SimpleNamespace(episodes=episodes)}}
+
+
 async def main():
+    set_status()
     # 空字段不报错
     e = cog.media_embed(media())
     assert e.description == "暂无简介" and e.fields[0].value == "未知" and e.url is None
@@ -136,7 +146,48 @@ async def main():
     await c.subscribe.callback(c, i, "tmdb:电视剧:9:2")
     c.searchchain.search_medias.assert_not_called()
     c.searchchain.recognize_media.assert_called_once_with(mtype=MediaType.TV, tmdbid=9)
-    assert i.followup.send.call_args.kwargs["view"].season == 2
+    assert i.followup.send.call_args.kwargs["view"].wanted_season == 2
+
+    # 入库状态
+    tv = media(type=MediaType.TV, seasons={0: [1], 1: [1, 2], 2: [1, 2, 3], 3: []})
+    ls = cog.library_state
+    assert ls(media(), None, True, {}) == ("✅ 已入库", False)
+    assert ls(media(), None, False, {}) == ("未入库", True)
+    assert ls(tv, 3, True, {}) == ("第 3 季未播出", True)  # 新季还没播，照样能订阅
+    assert ls(tv, 2, False, missing(1, [])) == ("✅ 第 2 季已入库", False)
+    assert ls(tv, 2, False, missing(2, [3])) == ("第 2 季缺 1 集", True)
+    assert ls(tv, 2, False, missing(2, [])) == ("第 2 季未入库", True)
+
+    # 剧集：补全季信息、默认最新季、不显示第 0 季
+    chain = MagicMock()
+    chain.recognize_media.return_value = tv
+    m, season, subscribed, state, need = cog.media_status(chain, media(type=MediaType.TV), None)
+    assert m is tv and season == 3 and not subscribed
+    assert cog.media_status(chain, tv, 1)[1] == 1
+    assert cog.media_status(chain, media(), 2)[1] is None  # 电影没有季
+    cog.DownloadChain = MagicMock(side_effect=RuntimeError("媒体服务器挂了"))
+    assert cog.media_status(chain, media(), None)[3:] == ("状态未知", True)
+    set_status()
+
+    # 面板：剧集有季选择框；已订阅 / 已入库时按钮不可点
+    view = cog.SubscribeView(chain, [tv])
+    await view.load(2)
+    embed = view.render()
+    assert [o.label for o in view.season_picker.options] == ["第 1 季", "第 2 季", "第 3 季"]
+    assert view.subscribe.label == "订阅第 2 季" and not view.subscribe.disabled
+    assert any(f.name == "类型" and f.value == "📺 剧集" for f in embed.fields)
+    i = interaction()
+    view.season_picker._values = ["1"]
+    set_status(subscribed=True)
+    await view.pick_season(i)
+    assert view.season == 1 and view.subscribe.disabled and view.subscribe.label == "✅ 已订阅"
+    i.edit_original_response.assert_awaited()
+    set_status(exist=(True, {}))
+    view = cog.SubscribeView(chain, [media()])
+    await view.load()
+    view.render()
+    assert view.subscribe.disabled and view.subscribe.label == "已在媒体库" and view.season_picker is None
+    set_status()
 
     # 出错时给用户提示
     i = interaction()
