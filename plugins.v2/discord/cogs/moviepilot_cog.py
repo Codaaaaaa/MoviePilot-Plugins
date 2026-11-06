@@ -10,6 +10,7 @@ from app.chain.search import SearchChain
 from app.chain.subscribe import SubscribeChain
 from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
+from app.schemas.types import MediaType
 
 
 async def reply(interaction: discord.Interaction, content: str, **kwargs):
@@ -60,30 +61,68 @@ class MPCog(commands.Cog):
         await reply(interaction, f"❌ 出错了：{error}", ephemeral=True)
 
     @app_commands.command(description="订阅电影或剧集")
-    @app_commands.describe(title="片名，剧集可带季数，如：庆余年 第二季")
+    @app_commands.describe(title="片名，剧集可带季数，如：庆余年 第二季；输入时可从候选中直接选择")
     async def subscribe(self, interaction: discord.Interaction, title: str):
         await interaction.response.defer()
-        meta = MetaInfo(title=title)
         # MoviePilot 的链路是同步阻塞的，放到线程里跑，避免卡住 bot
-        medias = await asyncio.to_thread(self.searchchain.search_medias, meta=meta)
+        picked = parse_choice(title)
+        if picked:
+            # 从自动补全选的，直接按 TMDB ID 识别，不用再搜
+            mtype, tmdbid, season = picked
+            media = await asyncio.to_thread(self.searchchain.recognize_media, mtype=mtype, tmdbid=tmdbid)
+            medias = [media] if media else []
+        else:
+            season = MetaInfo(title=title).begin_season
+            medias = await asyncio.to_thread(self.searchchain.search_medias, meta=MetaInfo(title=title))
         if not medias:
             await interaction.followup.send(f"没有找到「{title}」，换个关键词试试？")
             return
         # 所有结果放在一条消息里：默认展示第一个，下拉框切换
-        view = SubscribeView(self.subscribechain, medias[:10], meta)
+        view = SubscribeView(self.subscribechain, medias[:10], season)
         content = f"找到 {len(view.medias)} 个结果，可在下拉框中切换" if len(view.medias) > 1 else None
         view.message = await interaction.followup.send(content=content, embed=media_embed(view.media),
                                                        view=view, wait=True)
 
+    @subscribe.autocomplete("title")
+    async def title_autocomplete(self, interaction: discord.Interaction, current: str):
+        if len(current.strip()) < 2:
+            return []
+        # Discord 要求 3 秒内返回候选，超时就不给候选，用户照样可以直接回车
+        try:
+            medias = await asyncio.wait_for(
+                asyncio.to_thread(self.searchchain.search_medias, meta=MetaInfo(title=current)), timeout=2.5)
+        except Exception:
+            return []
+        season = MetaInfo(title=current).begin_season or ""
+        return [
+            app_commands.Choice(name=f"{m.title_year} · {m.type.value if m.type else '未知'}"[:100],
+                                value=f"{CHOICE_PREFIX}{m.type.value if m.type else ''}:{m.tmdb_id}:{season}")
+            for m in (medias or [])[:25] if m.tmdb_id
+        ]
+
+
+# 自动补全候选的值：tmdb:<类型>:<tmdbid>:<季>
+CHOICE_PREFIX = "tmdb:"
+
+
+def parse_choice(value: str):
+    if not value.startswith(CHOICE_PREFIX):
+        return None
+    try:
+        _, mtype, tmdbid, season = value.split(":")
+        return MediaType(mtype) if mtype else None, int(tmdbid), int(season) if season else None
+    except ValueError:
+        return None
+
 
 class SubscribeView(discord.ui.View):
 
-    def __init__(self, subscribechain: SubscribeChain, medias: List[MediaInfo], meta):
+    def __init__(self, subscribechain: SubscribeChain, medias: List[MediaInfo], season: int = None):
         super().__init__(timeout=180)
         self.subscribechain = subscribechain
         self.medias = medias
         self.index = 0
-        self.meta = meta
+        self.season = season
         self.message = None
         self.busy = False
         if len(medias) > 1:
@@ -128,7 +167,7 @@ class SubscribeView(discord.ui.View):
                 year=media.year,
                 mtype=media.type,
                 tmdbid=media.tmdb_id,
-                season=self.meta.begin_season,
+                season=self.season,
                 exist_ok=True,
                 username="Discord Bot"
             )
